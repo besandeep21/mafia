@@ -1,0 +1,336 @@
+/* Reusable components — names/roles map to DESIGN.md's component tokens */
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--type-button-size);
+  font-weight: var(--type-button-weight);
+  line-height: var(--type-button-leading);
+  letter-spacing: var(--type-button-tracking);
+  border-radius: var(--radius-full);
+  padding: 16px 28px;
+  min-height: 52px;
+  width: 100%;
+  transition: background-color var(--motion-fast) var(--motion-easing),
+              transform var(--motion-fast) var(--motion-easing);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.btn:active {
+  transform: scale(0.98);
+}
+
+/* button-primary: black pill, the app's primary action (maps to DESIGN.md marketing CTA) */
+.btn-primary {
+  background: var(--color-ink-button);
+  color: var(--color-on-ink-button);
+}
+.btn-primary:active {
+  background: var(--color-charcoal);
+}
+.btn-primary:disabled {
+  background: var(--color-disabled-text);
+  color: var(--color-canvas);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* button-buy-cta: cobalt pill, reserved for the single "confirm / commit" moment per screen
+   (create room, join room, ready-up) — mirrors DESIGN.md's rule that cobalt only appears
+   inside the commit flow, never on general navigation */
+.btn-accent {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+.btn-accent:active {
+  background: var(--color-primary-deep);
+}
+.btn-accent:disabled {
+  background: var(--color-disabled-text);
+  color: var(--color-canvas);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* button-secondary: outlined ghost, secondary action */
+.btn-secondary {
+  background: transparent;
+  color: var(--color-ink-deep);
+  border: 2px solid var(--color-ink-deep);
+}
+
+/* button-ghost: quieter tertiary action */
+.btn-ghost {
+  background: transparent;
+  color: var(--color-ink-deep);
+  border: 2px solid var(--color-hairline-soft);
+}
+
+.btn-block-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-base);
+}
+
+/* button-icon-circular */
+.btn-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-circle);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline-soft);
+  color: var(--color-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* ---------- Header / Navigation ---------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-base);
+  padding: var(--space-base) var(--space-xl);
+  padding-top: calc(var(--space-base) + var(--safe-top));
+  border-bottom: 1px solid var(--color-hairline-soft);
+  background: var(--color-canvas);
+}
+
+.app-header__title {
+  font-size: var(--type-heading-sm-size);
+  font-weight: var(--type-heading-sm-weight);
+  line-height: var(--type-heading-sm-leading);
+  flex: 1;
+  text-align: center;
+}
+
+.app-header__side {
+  width: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* ---------- Cards ---------- */
+
+.card {
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+}
+
+.card-feature {
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline-soft);
+  border-radius: var(--radius-xxxl);
+  padding: var(--space-xxl);
+}
+
+.card-sticky {
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  border: 1px solid var(--color-hairline-soft);
+  box-shadow: var(--shadow-sticky-panel);
+  background: var(--color-canvas);
+}
+
+/* ---------- Inputs ---------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.field label {
+  font-size: var(--type-body-sm-size);
+  font-weight: var(--type-body-sm-bold-weight);
+  color: var(--color-steel);
+}
+
+.text-input {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-size: var(--type-body-md-size);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  height: 52px;
+  width: 100%;
+}
+
+.text-input:focus {
+  outline: none;
+  border: 2px solid var(--color-fb-blue);
+}
+
+.text-input.has-error {
+  border: 1px solid var(--color-critical-strong);
+}
+
+.field-error {
+  color: var(--color-critical-strong);
+  font-size: var(--type-body-sm-size);
+}
+
+.field-hint {
+  color: var(--color-steel);
+  font-size: var(--type-body-sm-size);
+}
+
+/* room-code input: large, spaced-out digits since it's read off a phone at a glance */
+.code-input {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 10px;
+  text-align: center;
+  padding: var(--space-md) var(--space-base);
+}
+
+/* ---------- Badges ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+  font-size: var(--type-caption-size);
+  font-weight: var(--type-caption-bold-weight);
+}
+
+.badge-success {
+  background: var(--color-success);
+  color: var(--color-canvas);
+}
+
+.badge-attention {
+  background: var(--color-attention);
+  color: var(--color-canvas);
+}
+
+/* ---------- Player list ---------- */
+
+.player-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-base);
+  padding: var(--space-base);
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-lg);
+}
+
+.player-row__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  font-size: var(--type-body-md-size);
+}
+
+.player-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-circle);
+  background: var(--color-ink-deep);
+  color: var(--color-canvas);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--type-body-sm-size);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.player-row--host .player-avatar {
+  background: var(--color-primary);
+}
+
+/* ---------- Room code / QR display ---------- */
+
+.room-code-display {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-base);
+  text-align: center;
+}
+
+.room-code-display__value {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: var(--color-ink-deep);
+}
+
+.qr-frame {
+  background: var(--color-canvas);
+  border-radius: var(--radius-xl);
+  padding: var(--space-base);
+  border: 1px solid var(--color-hairline-soft);
+  width: 200px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- Empty / status text ---------- */
+
+.status-text {
+  color: var(--color-steel);
+  font-size: var(--type-body-sm-size);
+  text-align: center;
+}
+
+.section-title {
+  font-size: var(--type-heading-md-size);
+  font-weight: var(--type-heading-md-weight);
+  line-height: var(--type-heading-md-leading);
+}
+
+.eyebrow {
+  font-size: var(--type-body-sm-size);
+  color: var(--color-steel);
+}
+
+/* ---------- Toast (for mock action feedback) ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-xl) + var(--safe-bottom));
+  transform: translate(-50%, 0);
+  background: var(--color-ink-deep);
+  color: var(--color-canvas);
+  padding: var(--space-md) var(--space-xl);
+  border-radius: var(--radius-full);
+  font-size: var(--type-body-sm-size);
+  box-shadow: var(--shadow-sticky-panel);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-base) var(--motion-easing);
+  max-width: calc(100% - var(--space-xl) * 2);
+  text-align: center;
+}
+
+.toast.is-visible {
+  opacity: 1;
+}

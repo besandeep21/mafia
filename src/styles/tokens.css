@@ -1,0 +1,159 @@
+/*
+  Design tokens sourced from DESIGN.md (Meta commerce design system).
+  Adapted for a phone-first "game companion" surface: the same color
+  roles, type scale, radii and spacing are kept, but canvas/ink are
+  swapped toward a calmer, low-glare surface since this app is meant
+  to be held and glanced at during a live social game, not browsed.
+*/
+
+:root {
+  /* ---- Color: mapped 1:1 to DESIGN.md color roles ---- */
+  --color-primary: #0064e0;         /* cobalt — buy-now CTA in DESIGN.md, reused here as the single "confirm/act" accent */
+  --color-primary-deep: #0457cb;
+  --color-primary-soft: #0091ff;
+  --color-on-primary: #ffffff;
+
+  --color-ink-button: #0a1317;      /* ink-deep reused as the marketing/primary black-pill color */
+  --color-on-ink-button: #ffffff;
+
+  --color-success: #31a24c;
+  --color-attention: #f2a918;
+  --color-warning: #f7b928;
+  --color-critical: #e41e3f;
+  --color-critical-strong: #f0284a;
+
+  --color-canvas: #ffffff;
+  --color-surface-soft: #f1f4f7;
+  --color-ink-deep: #0a1317;
+  --color-ink: #1c1e21;
+  --color-charcoal: #444950;
+  --color-slate: #4b4c4f;
+  --color-steel: #5d6c7b;
+  --color-stone: #8595a4;
+  --color-hairline: #ced0d4;
+  --color-hairline-soft: #dee3e9;
+  --color-disabled-text: #bcc0c4;
+  --color-fb-blue: #1876f2;
+
+  /* ---- Typography: Optimistic VF is proprietary; DESIGN.md's own documented fallback chain is used ---- */
+  --font-display: "Montserrat", "Helvetica Neue", Helvetica, Arial, "Noto Sans", sans-serif;
+  --font-body: "Montserrat", "Helvetica Neue", Helvetica, Arial, "Noto Sans", sans-serif;
+
+  --type-hero-size: 40px;      /* scaled down from DESIGN.md's 64px hero-display for a phone-first controller, not a marketing hero */
+  --type-hero-weight: 500;
+  --type-hero-leading: 1.16;
+
+  --type-display-lg-size: 30px;
+  --type-display-lg-weight: 500;
+  --type-display-lg-leading: 1.17;
+
+  --type-heading-lg-size: 24px;
+  --type-heading-lg-weight: 500;
+  --type-heading-lg-leading: 1.28;
+
+  --type-heading-md-size: 20px;
+  --type-heading-md-weight: 300;
+  --type-heading-md-leading: 1.24;
+
+  --type-heading-sm-size: 18px;
+  --type-heading-sm-weight: 500;
+  --type-heading-sm-leading: 1.25;
+
+  --type-subtitle-lg-size: 17px;
+  --type-subtitle-lg-weight: 700;
+  --type-subtitle-lg-leading: 1.4;
+
+  --type-subtitle-md-size: 16px;
+  --type-subtitle-md-weight: 400;
+  --type-subtitle-md-leading: 1.44;
+
+  --type-body-md-size: 16px;
+  --type-body-md-weight: 400;
+  --type-body-md-leading: 1.5;
+  --type-body-md-tracking: -0.16px;
+
+  --type-body-md-bold-weight: 700;
+
+  --type-body-sm-size: 14px;
+  --type-body-sm-weight: 400;
+  --type-body-sm-leading: 1.43;
+  --type-body-sm-tracking: -0.14px;
+
+  --type-body-sm-bold-weight: 700;
+
+  --type-caption-size: 12px;
+  --type-caption-weight: 400;
+  --type-caption-leading: 1.33;
+
+  --type-caption-bold-weight: 700;
+
+  --type-button-size: 15px;
+  --type-button-weight: 700;
+  --type-button-leading: 1.4;
+  --type-button-tracking: -0.14px;
+
+  /* ---- Radius ---- */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 16px;
+  --radius-xxl: 24px;
+  --radius-xxxl: 32px;
+  --radius-feature: 40px;
+  --radius-full: 100px;
+  --radius-circle: 50%;
+
+  /* ---- Spacing ---- */
+  --space-xxs: 4px;
+  --space-xs: 8px;
+  --space-sm: 10px;
+  --space-md: 12px;
+  --space-base: 16px;
+  --space-lg: 20px;
+  --space-xl: 24px;
+  --space-xxl: 32px;
+  --space-xxxl: 40px;
+  --space-section-sm: 48px;
+  --space-section: 64px;
+
+  /* ---- Elevation ---- */
+  --shadow-sticky-panel: rgba(20, 22, 26, 0.3) 0px 1px 4px 0px;
+  --shadow-tab-indicator: rgba(0, 0, 0, 0.2) 1px 1px 0px 0px;
+
+  /* ---- Motion ---- */
+  --motion-fast: 160ms;
+  --motion-base: 220ms;
+  --motion-easing: cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  /* ---- Safe areas ---- */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  /*
+    DESIGN.md documents no dark-mode token set (see "Known Gaps"),
+    so this is a decision recorded in DECISIONS.md rather than an
+    invented brand direction: surfaces darken, ink lightens, the
+    cobalt/black CTA roles and all radii/spacing/type stay identical.
+  */
+  :root {
+    --color-canvas: #14181b;
+    --color-surface-soft: #1d2226;
+    --color-ink-deep: #f5f7f8;
+    --color-ink: #e7eaec;
+    --color-charcoal: #c7ccd0;
+    --color-slate: #b7bcc1;
+    --color-steel: #8b96a0;
+    --color-stone: #6b7580;
+    --color-hairline: #2a3034;
+    --color-hairline-soft: #232830;
+    --color-disabled-text: #454b50;
+
+    --color-ink-button: #f5f7f8;
+    --color-on-ink-button: #0a1317;
+  }
+}
