@@ -1,6 +1,6 @@
 import { renderShell } from "./layout.js";
-import { createMockRoom } from "../state/mockState.js";
-import { getStoredPlayerName, setStoredPlayerName, setLastRoomCode } from "../services/localStorageService.js";
+import { createRoom } from "../state/roomStore.js";
+import { getStoredPlayerName, setStoredPlayerName, setLastRoomCode } from "../services/identityService.js";
 
 export function renderCreate(root, navigate) {
   const content = renderShell(root, {
@@ -54,8 +54,8 @@ export function renderCreate(root, navigate) {
     nameError.classList.add("visually-hidden");
 
     setStoredPlayerName(hostName);
-    const room = createMockRoom(roomName, hostName);
+    const room = createRoom(roomName, hostName);
     setLastRoomCode(room.roomCode);
-    navigate("/lobby");
+    navigate(`/lobby?code=${room.roomCode}`);
   });
 }

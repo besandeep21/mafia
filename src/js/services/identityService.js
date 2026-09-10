@@ -1,11 +1,21 @@
 /**
- * localStorageService
+ * identityService
  *
- * Per CLAUDE_PROJECT_INSTRUCTIONS.md and the master instructions:
- * local storage may hold player session / reconnection identity and
- * UI preferences, but is never the authoritative game database.
- * Phase 1 only needs a persistent player identity and a "last room"
- * hint so a later phase's reconnect flow has something to build on.
+ * Phase 1 stored player identity in localStorage, which is shared by
+ * every tab of the same browser — fine for a single mock lobby, but it
+ * breaks Phase 2's acceptance test ("several browser tabs can simulate
+ * a lobby"), since every tab would resolve to the exact same player.
+ *
+ * sessionStorage is per-tab (each tab gets its own player id/name) while
+ * still surviving a refresh within that tab, which is what
+ * CLAUDE_PROJECT_INSTRUCTIONS.md's reconnection requirements actually need
+ * at this stage. This is a testing-phase artifact: once Phase 3+ moves to
+ * real separate physical devices, each device already has its own
+ * browser storage, so this distinction stops mattering. See DECISIONS.md.
+ *
+ * Room data itself (state/roomStore.js) intentionally still uses
+ * localStorage, since that's the thing multiple tabs need to *share* to
+ * simulate a lobby before there's a real backend.
  */
 
 const KEYS = {
@@ -16,7 +26,7 @@ const KEYS = {
 
 function safeGet(key) {
   try {
-    return window.localStorage.getItem(key);
+    return window.sessionStorage.getItem(key);
   } catch {
     return null;
   }
@@ -24,10 +34,9 @@ function safeGet(key) {
 
 function safeSet(key, value) {
   try {
-    window.localStorage.setItem(key, value);
+    window.sessionStorage.setItem(key, value);
   } catch {
     // Storage unavailable (private mode, quota, etc.) — degrade silently.
-    // Session simply won't survive a refresh; this is a known limitation.
   }
 }
 

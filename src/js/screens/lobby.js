@@ -1,57 +1,67 @@
 import { renderShell, showToast } from "./layout.js";
-import { getMockState, subscribeMockState, toggleOwnReady, leaveMockRoom } from "../state/mockState.js";
+import { getRoom, subscribeRoom, setOwnReady, leaveRoom } from "../state/roomStore.js";
+import { getOrCreatePlayerId } from "../services/identityService.js";
 import { buildJoinUrl, shareJoinLink } from "../services/shareService.js";
+import { encodeQrToSvg } from "../services/qrRenderer.js";
 
-const QR_ICON = `<svg width="120" height="120" viewBox="0 0 100 100" aria-hidden="true">
-  <rect width="100" height="100" fill="var(--color-canvas)"/>
-  <g fill="var(--color-ink-deep)">
-    <rect x="4" y="4" width="24" height="24"/>
-    <rect x="10" y="10" width="12" height="12" fill="var(--color-canvas)"/>
-    <rect x="72" y="4" width="24" height="24"/>
-    <rect x="78" y="10" width="12" height="12" fill="var(--color-canvas)"/>
-    <rect x="4" y="72" width="24" height="24"/>
-    <rect x="10" y="78" width="12" height="12" fill="var(--color-canvas)"/>
-    <rect x="40" y="4" width="6" height="6"/><rect x="52" y="4" width="6" height="6"/>
-    <rect x="40" y="16" width="6" height="6"/><rect x="60" y="16" width="6" height="6"/>
-    <rect x="40" y="40" width="20" height="20"/>
-    <rect x="4" y="40" width="6" height="6"/><rect x="16" y="46" width="6" height="6"/>
-    <rect x="72" y="40" width="6" height="6"/><rect x="84" y="52" width="6" height="6"/>
-    <rect x="40" y="72" width="6" height="6"/><rect x="52" y="84" width="6" height="6"/>
-    <rect x="72" y="72" width="24" height="24"/>
-    <rect x="78" y="78" width="12" height="12" fill="var(--color-canvas)"/>
-  </g>
-</svg>`;
-
-export function renderLobby(root, navigate) {
-  let unsubscribe = null;
+export function renderLobby(root, navigate, params = {}) {
+  const code = params.code;
 
   const content = renderShell(root, {
     title: "Lobby",
     showBack: true,
     onBack: () => {
-      leaveMockRoom();
+      leaveRoom(code);
       navigate("/");
     },
   });
 
-  function draw() {
-    const { room } = getMockState();
+  if (!code) {
+    navigate("/");
+    return;
+  }
 
+  const ownPlayerId = getOrCreatePlayerId();
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function draw(room) {
     if (!room) {
+      // The room disappeared (e.g. everyone else left, or it only exists
+      // in a different browser/device — rooms don't sync across devices
+      // until Phase 3's real backend).
+      content.innerHTML = `
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-base); text-align:center;">
+          <p class="section-title">This room isn't available</p>
+          <p class="status-text">It may have ended, or it only exists in a different browser/device.</p>
+          <button class="btn btn-primary" type="button" data-role="home" style="width:auto; padding-left:24px; padding-right:24px;">Back home</button>
+        </div>
+      `;
+      content.querySelector('[data-role="home"]').addEventListener("click", () => navigate("/"));
+      return;
+    }
+
+    const ownPlayer = room.players.find((p) => p.id === ownPlayerId);
+    if (!ownPlayer) {
+      // We're not (or no longer) a player in this room.
       navigate("/");
       return;
     }
 
-    const ownPlayer = room.players.find((p) => p.id === getMockState().ownPlayerId);
     const allReady = room.players.every((p) => p.ready);
     const joinUrl = buildJoinUrl(room.roomCode);
+    const qrSvg = encodeQrToSvg(joinUrl);
 
     content.innerHTML = `
       <div class="room-code-display">
-        <span class="eyebrow">${room.roomName}</span>
+        <span class="eyebrow">${escapeHtml(room.roomName)}</span>
         <span class="room-code-display__value">${room.roomCode}</span>
-        <div class="qr-frame">${QR_ICON}</div>
-        <p class="status-text">Scan with a phone camera, or share the link below.<br>Placeholder QR — becomes a live scannable code once the backend issues real join links.</p>
+        <div class="qr-frame">${qrSvg || '<span class="status-text">Link too long for a QR code — use share instead.</span>'}</div>
+        <p class="status-text">Scan with a phone camera, or share the link below.</p>
         <button class="btn btn-ghost" type="button" data-role="share" style="width:auto; padding-left:24px; padding-right:24px;">Share join link</button>
       </div>
 
@@ -79,8 +89,8 @@ export function renderLobby(root, navigate) {
         (p) => `
       <li class="player-row ${p.isHost ? "player-row--host" : ""}">
         <span class="player-row__name">
-          <span class="player-avatar">${p.name.slice(0, 1).toUpperCase()}</span>
-          ${p.name}${p.id === getMockState().ownPlayerId ? " (you)" : ""}
+          <span class="player-avatar">${escapeHtml(p.name.slice(0, 1).toUpperCase())}</span>
+          ${escapeHtml(p.name)}${p.id === ownPlayerId ? " (you)" : ""}
         </span>
         ${
           p.ready
@@ -93,7 +103,8 @@ export function renderLobby(root, navigate) {
       .join("");
 
     content.querySelector('[data-role="ready"]').addEventListener("click", () => {
-      toggleOwnReady();
+      const updated = setOwnReady(code, !ownPlayer.ready);
+      if (updated) draw(updated);
     });
 
     content.querySelector('[data-role="share"]').addEventListener("click", async () => {
@@ -103,10 +114,8 @@ export function renderLobby(root, navigate) {
     });
   }
 
-  draw();
-  unsubscribe = subscribeMockState(draw);
+  draw(getRoom(code));
+  const unsubscribe = subscribeRoom(code, draw);
 
-  return () => {
-    if (unsubscribe) unsubscribe();
-  };
+  return () => unsubscribe();
 }
