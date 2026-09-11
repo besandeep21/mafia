@@ -112,3 +112,80 @@ CLAUDE_PROJECT_INSTRUCTIONS.md §21 and the master instructions'
     getting hidden game-state privileges, not about lobby host-transfer
     mechanics, which aren't specified anywhere in the project knowledge.
     Deferred until a phase that actually needs it (if ever).
+    **Superseded in Phase 3** — see item 17.
+
+## Phase 3
+
+13. **Player identity moved back from `sessionStorage` to `localStorage`**
+    (`identityService.js`). Phase 2 deliberately used `sessionStorage` so
+    multiple tabs of one browser could simulate different players against
+    the tab-local mock. Now that Phase 3 introduces a real backend,
+    production correctness matters more than that testing convenience:
+    `CLAUDE_PROJECT_INSTRUCTIONS.md` §5 requires identity to survive a
+    full browser close/reopen on the same device, which `sessionStorage`
+    doesn't do. To simulate multiple players against the real backend
+    from one machine now, use separate browser profiles or incognito
+    windows (each gets its own `localStorage`) — plain tabs will
+    correctly all resolve to the same player, matching real device
+    behavior.
+
+14. **The client generates and owns its own persistent `playerId`; the
+    server only issues the `sessionToken`.** `CLAUDE_PROJECT_INSTRUCTIONS.md`
+    §5 says "every player gets a random persistent player ID stored
+    locally on their device" — device-generated, reused across every
+    room that device ever joins. The backend trusts this ID as a label
+    (not a security claim) and issues a separate, per-room secret
+    `sessionToken` as the actual authorization credential for mutating
+    requests. A first implementation had the server mint a fresh
+    `playerId` on every room join instead, which technically worked but
+    contradicted "persistent... reused" — corrected before it reached
+    the frontend. If a client's claimed `playerId` ever collides with a
+    different, already-present player in the same room (astronomically
+    unlikely with UUIDs, but checked defensively), the join still
+    succeeds — under a freshly-minted ID — rather than being rejected or
+    allowed to impersonate the existing player.
+
+15. **GET for reads, POST with `Content-Type: text/plain` for writes** —
+    a deliberate workaround for a well-known Apps Script + browser CORS
+    interaction (Web Apps can't reliably answer a CORS preflight
+    `OPTIONS` request, which a cross-origin JSON POST would otherwise
+    trigger). GET requests and POST requests with a CORS-safelisted
+    content type like `text/plain` never trigger a preflight in the
+    first place. `doPost` parses the JSON string itself. See
+    `apps-script/README.md` for the full explanation and how this was
+    verified (a real headless-browser test against a local server
+    running the actual backend code, confirming no preflight fires and
+    responses parse correctly end to end).
+
+16. **One script-level lock, not a per-room lock**
+    (`apps-script/Utils.gs`'s `withLock_`). Serializes writes across
+    *all* rooms rather than just the one being mutated — simpler, and
+    it's the pattern Apps Script's own documentation recommends for this
+    exact scenario. This app's expected scale (a handful of concurrent
+    physical game sessions in someone's living room, not a public
+    service) makes the simplicity worth the small throughput cost.
+    Revisit only if that assumption ever stops holding.
+
+17. **Host reassignment on leave, implemented.** When the host leaves a
+    room, the longest-standing remaining player is promoted to host
+    (`apps-script/Rooms.gs`'s `leaveRoomRecord_`). This supersedes item
+    12's Phase 2 deferral: once there's a real, persistent room record
+    that other phases (4+) will need a valid, unambiguous host for, an
+    orphaned `hostPlayerId` pointing at nobody is a real correctness gap
+    worth closing now rather than later, and the fix was small and
+    self-contained within code this phase was already touching.
+
+18. **Rooms are soft-deleted (Drive trash), not permanently erased**, once
+    the last player leaves (`apps-script/Persistence.gs`'s `deleteRoom_`).
+    Cheap safety margin against a mistaken "everyone left" detection
+    permanently destroying a room's data — Drive's own 30-day trash
+    retention handles eventual cleanup for free, with no `history/`
+    archive folder needed yet.
+
+19. **Polling interval: 4 seconds, exponential backoff on failure, capped
+    at 20 seconds** (`roomStore.js`). Within `ARCHITECTURE.md` §19's
+    suggested 3–5 second lobby range. Backing off on failure (rather than
+    retrying immediately) avoids hammering a struggling backend or
+    burning through Apps Script's daily quota during a network hiccup;
+    resetting to the base interval on the next success keeps the lobby
+    feeling responsive again as soon as things recover.

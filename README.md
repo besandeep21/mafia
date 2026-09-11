@@ -5,12 +5,10 @@ group, with no human moderator. See the project's `CLAUDE_PROJECT_INSTRUCTIONS.m
 `ARCHITECTURE.md`, `GAME_RULES.md`, and `DESIGN.md` for the full spec —
 this README only covers running and deploying what exists so far.
 
-**Status: Phase 2 — Lobby.** Real room creation/joining with a working
-6-digit code, a functioning scannable QR code, a share link, and ready
-states — all synced live across multiple browser tabs. There's still no
-real backend (that's Phase 3), so rooms only sync across tabs of the
-*same browser*, not across separate devices yet. See `DECISIONS.md` for
-the reasoning behind each choice made along the way.
+**Status: Phase 3 — Apps Script backend.** Rooms are now real, persisted
+in the host's Google Drive, and sync across *separate physical devices*
+— not just tabs of one browser like Phase 2's mock. See `DECISIONS.md`
+for the reasoning behind each choice made along the way.
 
 ## Project structure
 
@@ -19,6 +17,9 @@ index.html                 App shell (single HTML entry point)
 manifest.webmanifest        PWA install metadata
 service-worker.js           Caches the static shell for install/offline
 icons/                       App icons (192, 512, maskable 512)
+apps-script/                 The real backend — deployed separately, see below
+  README.md                   Deployment guide specific to this code
+  appsscript.json, *.gs        The backend source itself
 src/
   styles/
     tokens.css               Design tokens sourced from DESIGN.md
@@ -26,22 +27,37 @@ src/
     components.css           Buttons, cards, inputs, nav, badges, etc.
   js/
     app.js                   Hash router + service worker registration
+    config.js                 API_BASE_URL — the one thing you must set (see below)
     screens/                 One module per screen (landing, create, join, lobby)
     state/
-      roomStore.js             Shared room state (localStorage + cross-tab sync)
+      roomStore.js             Real room state via HTTP + polling
     services/
-      identityService.js       Per-tab player identity (sessionStorage)
+      apiClient.js              Fetch wrapper (handles the CORS workaround)
+      identityService.js        Per-device player identity (localStorage) + session tokens
       shareService.js           Join-link building + Web Share API / clipboard
-      qrEncoder.js              Self-contained QR Code encoder (ISO 18004)
-      qrRenderer.js             Renders the encoder's output as inline SVG
+      qrEncoder.js               Self-contained QR Code encoder (ISO 18004)
+      qrRenderer.js              Renders the encoder's output as inline SVG
     utils/
-      roomCode.js               Room code generation/validation
+      roomCode.js               Room code validation
 ```
 
-## Run it locally
+## Setting up the backend (required before anything works)
 
-No build step, no npm install required. Any static file server works,
-for example:
+Phase 3 needs a real backend — there's no more mock to fall back on.
+
+1. Follow `APPS_SCRIPT_SETUP.md` (project root) and `apps-script/README.md`
+   to deploy the Google Apps Script Web App and get a `/exec` URL.
+2. Open `src/js/config.js` and replace `API_BASE_URL`'s placeholder with
+   that URL.
+3. Commit and push.
+
+Until you do this, the app clearly tells you the backend isn't
+configured yet (rather than failing with a confusing network error) —
+you'll see this message on the Create/Join/Lobby screens.
+
+## Run the frontend locally
+
+No build step, no npm install required for the frontend itself:
 
 ```bash
 cd mafia-webapp
@@ -49,63 +65,46 @@ python3 -m http.server 8080
 # then open http://localhost:8080
 ```
 
-or, with Node installed:
+The backend, though, is a separate Google Apps Script project — see
+above. You can't run that part locally; it only exists once deployed to
+Google's infrastructure.
 
-```bash
-npx serve .
-```
+## What to test in Phase 3
 
-Open the printed URL on your phone (same Wi-Fi network) to test the
-mobile layout on a real device, or use your browser's device toolbar.
-
-## What to test in Phase 2
-
-1. **Host flow**: "Host a game" → enter a room name + your name → lands
-   on a Lobby showing a real 6-digit code, a scannable QR code, and a
-   "Share join link" button.
-2. **Multi-tab join**: open a second tab (or an incognito window) to the
-   same site, choose "Join a game", enter the code from tab 1 → you
-   should appear in tab 1's player list within a moment, with no manual
-   refresh needed. This is the core Phase 2 test — it simulates multiple
-   players without a real backend yet.
-3. **Ready sync**: toggle "I'm ready" in one tab → the other tab's badge
-   for that player updates automatically (via the browser's `storage`
-   event).
-4. **Wrong code**: try joining with a code that doesn't exist → a clear
-   inline error appears instead of silently succeeding (Phase 1's mock
-   accepted any code; Phase 2 validates against real rooms).
-5. **QR scan**: on a phone, scan the lobby's QR code with the camera —
-   it should open the join screen with the code pre-filled.
-6. **Leave**: tap back from the lobby in one tab → that player disappears
-   from the other tab's player list. If every player leaves, the room is
-   gone (joining that code afterward correctly fails as NOT_FOUND).
-7. **Refresh**: refreshing a lobby tab keeps you as the same player (no
-   duplicate entry), because identity persists per-tab via `sessionStorage`.
-8. Everything from Phase 1's checklist (responsive layout, install,
-   reduced motion) still applies.
+1. **Host on device A, join on device B** (two different phones/laptops,
+   or at minimum two different browser profiles/incognito windows — see
+   `DECISIONS.md` #13 for why plain tabs of the same browser now behave
+   like the *same* player). Device B should appear on device A's lobby
+   screen within a few seconds, with no manual refresh.
+2. **Ready sync across devices** — toggling ready on one device updates
+   the other automatically.
+3. **Reconnect** — refresh a device's lobby tab; it should stay the same
+   player, not create a duplicate.
+4. **Wrong code** — joining with a made-up code shows a real error from
+   the backend, not a client-side guess.
+5. **QR scan** — scan the lobby's QR with an actual phone camera; it
+   should open the join screen with the code pre-filled.
+6. Everything from Phase 1 and 2's checklists still applies.
 
 ## Deploying to GitHub Pages
 
-1. Push this folder's contents to the root of a GitHub repository (or a
-   `docs/` folder — either works with GitHub Pages).
-2. In the repo, go to **Settings → Pages**, choose the branch/folder
-   containing these files, and save.
-3. Wait for the Pages deployment to finish, then open the generated URL.
-4. `.nojekyll` is included for safety, though nothing here currently
-   needs it.
-
-There is nothing to configure yet for the backend — `APPS_SCRIPT_SETUP.md`
-covers that when Phase 3 introduces the Google Apps Script backend and a
-real `CONFIG.API_BASE_URL` value.
+Same as before — see `APPS_SCRIPT_SETUP.md` Steps 8–9. `.nojekyll` is
+included, though nothing here currently needs it.
 
 ## Known limitations (intentional, deferred to later phases)
 
-- **No cross-device sync.** Rooms only sync across tabs of the *same
-  browser* via `localStorage` + the `storage` event. Two people on two
-  different phones cannot yet see the same room — that requires Phase
-  3's real Apps Script backend.
-- No reconnect logic beyond same-tab refresh (see `DECISIONS.md` #9).
 - No role assignment, night/day phases, or voting — Phase 4+.
-- No host-transfer if the host leaves the lobby (see `DECISIONS.md` #12).
+- The "Start game" button in the lobby is a visible placeholder — it's
+  disabled and explains itself, but doesn't do anything yet.
+- Locking is script-level, not per-room (see `DECISIONS.md` #16) — fine
+  at this app's expected scale.
+- Rooms are soft-deleted (Drive trash) when empty, not archived to a
+  `history/` folder yet.
 - Dark mode tokens are a reasonable placeholder, not a captured design
   decision (`DESIGN.md` documents no dark-mode tokens).
+- The CORS workaround (GET reads / text-plain POST writes) was verified
+  with a real headless browser against a local server running the exact
+  backend code — but Google's own `/exec` endpoint's specific CORS
+  behavior can only be fully confirmed by your own deployment and
+  testing (this environment has no internet access to Google's
+  infrastructure). See `apps-script/README.md`.

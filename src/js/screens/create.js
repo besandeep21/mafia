@@ -1,6 +1,8 @@
 import { renderShell } from "./layout.js";
 import { createRoom } from "../state/roomStore.js";
 import { getStoredPlayerName, setStoredPlayerName, setLastRoomCode } from "../services/identityService.js";
+import { isBackendConfigured } from "../config.js";
+import { BackendNotConfiguredError } from "../services/apiClient.js";
 
 export function renderCreate(root, navigate) {
   const content = renderShell(root, {
@@ -14,6 +16,13 @@ export function renderCreate(root, navigate) {
   content.innerHTML = `
     <form data-role="form" class="btn-block-group" style="flex:1;">
       <div style="flex:1; display:flex; flex-direction:column; gap: var(--space-xl);">
+        ${
+          isBackendConfigured()
+            ? ""
+            : `<div class="card" style="border-color:var(--color-critical-strong);">
+                <p class="field-error" style="margin:0;">The game backend isn't configured yet. See apps-script/README.md to deploy it, then set API_BASE_URL in src/js/config.js.</p>
+              </div>`
+        }
         <div class="field">
           <label for="room-name">Room name</label>
           <input class="text-input" id="room-name" name="roomName" type="text"
@@ -28,20 +37,26 @@ export function renderCreate(root, navigate) {
             value="${storedName ? storedName.replace(/"/g, "&quot;") : ""}" />
           <span class="field-error visually-hidden" data-role="name-error">Enter a name so other players can recognize you.</span>
         </div>
+
+        <span class="field-error visually-hidden" data-role="network-error"></span>
       </div>
 
-      <button class="btn btn-accent" type="submit">Create room</button>
+      <button class="btn btn-accent" type="submit" data-role="submit">Create room</button>
     </form>
   `;
 
   const form = content.querySelector('[data-role="form"]');
   const hostNameInput = content.querySelector("#host-name");
   const nameError = content.querySelector('[data-role="name-error"]');
+  const networkError = content.querySelector('[data-role="network-error"]');
+  const submitButton = content.querySelector('[data-role="submit"]');
 
-  form.addEventListener("submit", (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const roomName = content.querySelector("#room-name").value;
     const hostName = hostNameInput.value.trim();
+
+    networkError.classList.add("visually-hidden");
 
     if (!hostName) {
       hostNameInput.classList.add("has-error");
@@ -53,9 +68,22 @@ export function renderCreate(root, navigate) {
     hostNameInput.classList.remove("has-error");
     nameError.classList.add("visually-hidden");
 
-    setStoredPlayerName(hostName);
-    const room = createRoom(roomName, hostName);
-    setLastRoomCode(room.roomCode);
-    navigate(`/lobby?code=${room.roomCode}`);
+    submitButton.disabled = true;
+    submitButton.textContent = "Creating room…";
+
+    try {
+      setStoredPlayerName(hostName);
+      const room = await createRoom(roomName, hostName);
+      setLastRoomCode(room.roomCode);
+      navigate(`/lobby?code=${room.roomCode}`);
+    } catch (err) {
+      networkError.textContent =
+        err instanceof BackendNotConfiguredError
+          ? "The game backend isn't configured yet. See apps-script/README.md."
+          : `Couldn't create the room: ${err.message}`;
+      networkError.classList.remove("visually-hidden");
+      submitButton.disabled = false;
+      submitButton.textContent = "Create room";
+    }
   });
 }

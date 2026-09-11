@@ -1,21 +1,24 @@
 /**
  * identityService
  *
- * Phase 1 stored player identity in localStorage, which is shared by
- * every tab of the same browser — fine for a single mock lobby, but it
- * breaks Phase 2's acceptance test ("several browser tabs can simulate
- * a lobby"), since every tab would resolve to the exact same player.
+ * Phase 2 stored identity in sessionStorage so multiple tabs in one
+ * browser could simulate different players against the mock, tab-local
+ * lobby. Now that Phase 3 introduces a real backend, that trick is no
+ * longer appropriate: production reconnection needs identity to survive
+ * a full browser close/reopen on the same device, which sessionStorage
+ * doesn't do. localStorage is correct here — see DECISIONS.md.
  *
- * sessionStorage is per-tab (each tab gets its own player id/name) while
- * still surviving a refresh within that tab, which is what
- * CLAUDE_PROJECT_INSTRUCTIONS.md's reconnection requirements actually need
- * at this stage. This is a testing-phase artifact: once Phase 3+ moves to
- * real separate physical devices, each device already has its own
- * browser storage, so this distinction stops mattering. See DECISIONS.md.
+ * (To test with multiple simulated players against the real backend
+ * from one machine now, use separate browser profiles or an incognito
+ * window per player — each gets its own localStorage. Plain multiple
+ * tabs of the same browser will all resolve to the same player, which
+ * is the correct, expected behavior for a real device.)
  *
- * Room data itself (state/roomStore.js) intentionally still uses
- * localStorage, since that's the thing multiple tabs need to *share* to
- * simulate a lobby before there's a real backend.
+ * Session tokens are issued by the backend per room (see
+ * apps-script/Rooms.gs) and are the actual authorization credential for
+ * mutating requests — the backend never trusts a bare playerId. They're
+ * stored per room code since a device could join more than one room
+ * over time.
  */
 
 const KEYS = {
@@ -24,9 +27,13 @@ const KEYS = {
   LAST_ROOM_CODE: "mafia.lastRoomCode",
 };
 
+function sessionKey(roomCode) {
+  return `mafia.session.${roomCode}`;
+}
+
 function safeGet(key) {
   try {
-    return window.sessionStorage.getItem(key);
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
@@ -34,9 +41,17 @@ function safeGet(key) {
 
 function safeSet(key, value) {
   try {
-    window.sessionStorage.setItem(key, value);
+    window.localStorage.setItem(key, value);
   } catch {
     // Storage unavailable (private mode, quota, etc.) — degrade silently.
+  }
+}
+
+function safeRemove(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Non-fatal.
   }
 }
 
@@ -56,6 +71,17 @@ export function getOrCreatePlayerId() {
   return id;
 }
 
+/**
+ * Overwrites this device's stored player id. Only needed for the rare
+ * case where the backend couldn't honor the id this device asked for
+ * (see apps-script/Rooms.gs's collision-fallback path) and assigned a
+ * different one — the client must adopt whatever the server actually
+ * used, or later requests (and its own lobby screen) won't recognize it.
+ */
+export function setPlayerId(id) {
+  safeSet(KEYS.PLAYER_ID, id);
+}
+
 export function getStoredPlayerName() {
   return safeGet(KEYS.PLAYER_NAME) || "";
 }
@@ -70,4 +96,17 @@ export function getLastRoomCode() {
 
 export function setLastRoomCode(code) {
   safeSet(KEYS.LAST_ROOM_CODE, code);
+}
+
+/** @returns {string|null} the session token this device holds for `roomCode`, if any. */
+export function getSessionToken(roomCode) {
+  return safeGet(sessionKey(roomCode));
+}
+
+export function setSessionToken(roomCode, token) {
+  safeSet(sessionKey(roomCode), token);
+}
+
+export function clearSessionToken(roomCode) {
+  safeRemove(sessionKey(roomCode));
 }

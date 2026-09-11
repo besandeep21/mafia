@@ -7,7 +7,7 @@
  * instantly. There is no game data to cache yet since Phase 1 has no backend.
  */
 
-const CACHE_VERSION = "mafia-shell-v2";
+const CACHE_VERSION = "mafia-shell-v3";
 
 const SHELL_ASSETS = [
   "./",
@@ -17,6 +17,7 @@ const SHELL_ASSETS = [
   "./src/styles/base.css",
   "./src/styles/components.css",
   "./src/js/app.js",
+  "./src/js/config.js",
   "./src/js/screens/layout.js",
   "./src/js/screens/landing.js",
   "./src/js/screens/create.js",
@@ -24,6 +25,7 @@ const SHELL_ASSETS = [
   "./src/js/screens/lobby.js",
   "./src/js/state/roomStore.js",
   "./src/js/services/identityService.js",
+  "./src/js/services/apiClient.js",
   "./src/js/services/shareService.js",
   "./src/js/services/qrEncoder.js",
   "./src/js/services/qrRenderer.js",

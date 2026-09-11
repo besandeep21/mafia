@@ -1,154 +1,137 @@
 /**
  * roomStore
  *
- * Phase 2's acceptance test is "several browser tabs can simulate a
- * lobby" — there is still no real backend (that's Phase 3, Apps
- * Script), so this module simulates one using the one thing multiple
- * browser tabs of the same origin already share: localStorage. Each
- * room is one localStorage entry, keyed by room code. Every tab that
- * touches a room reads-modifies-writes that entry, and other tabs pick
- * up the change via the native `storage` event (which fires in every
- * *other* tab, but not the one that made the change — that tab already
- * has the fresh value from its own call).
+ * Phase 3 replaces Phase 2's localStorage-simulated backend with real
+ * HTTP calls to the deployed Apps Script Web App. Every function here
+ * keeps the same name/shape screens already call (createRoom, joinRoom,
+ * getRoom, setOwnReady, leaveRoom, subscribeRoom) — only now they're
+ * async and can fail over the network, which screens must handle.
  *
- * This intentionally mirrors the shape ARCHITECTURE.md describes for
- * the real backend's room object and its "public projection" (§4, §6),
- * so Phase 3 can swap this module for real API calls without the
- * screens needing to change: same function names, same room shape.
- *
- * Known limitation: this only syncs across tabs of the *same browser*.
- * It cannot simulate multiple physical devices — that requires Phase 3's
- * real backend. See DECISIONS.md.
+ * There is still no push mechanism (Apps Script Web Apps can't do
+ * WebSockets), so subscribeRoom polls, per ARCHITECTURE.md §19's quota
+ * guidance: every few seconds, with backoff on failure, and an
+ * immediate one-off refresh right after this device's own actions
+ * (already covered since create/join/setOwnReady return the fresh room
+ * directly from their own response).
  */
 
-import { getOrCreatePlayerId } from "../services/identityService.js";
-import { generateRoomCode } from "../utils/roomCode.js";
+import { apiGet, apiPost } from "../services/apiClient.js";
+import {
+  getOrCreatePlayerId,
+  setPlayerId,
+  getSessionToken,
+  setSessionToken,
+} from "../services/identityService.js";
 
-const ROOM_KEY_PREFIX = "mafia.room.";
+const POLL_INTERVAL_MS = 4000; // within ARCHITECTURE.md's suggested 3-5s lobby range
+const POLL_BACKOFF_MAX_MS = 20000;
 
-function roomKey(code) {
-  return `${ROOM_KEY_PREFIX}${code}`;
-}
-
-function readRoom(code) {
-  try {
-    const raw = window.localStorage.getItem(roomKey(code));
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeRoom(room) {
-  try {
-    window.localStorage.setItem(roomKey(room.roomCode), JSON.stringify(room));
-  } catch {
-    // Storage unavailable — the room simply won't be visible to other tabs.
-  }
-  return room;
-}
-
-/**
- * Creates a room with the current tab's player as host.
- * Retries on the (extremely unlikely) chance of a code collision.
- */
-export function createRoom(roomName, hostName) {
+export async function createRoom(roomName, hostName) {
   const playerId = getOrCreatePlayerId();
-
-  let code;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    code = generateRoomCode();
-    if (!readRoom(code)) break;
-  }
-
-  const room = {
-    roomCode: code,
-    roomName: roomName.trim() || "Untitled Room",
-    phase: "LOBBY",
-    hostPlayerId: playerId,
-    revision: 1,
-    players: [
-      { id: playerId, name: hostName.trim() || "Host", isHost: true, ready: false, alive: true },
-    ],
-  };
-
-  return writeRoom(room);
+  const data = await apiPost("createRoom", { roomName, hostName, playerId });
+  if (data.playerId !== playerId) setPlayerId(data.playerId);
+  setSessionToken(data.room.roomCode, data.sessionToken);
+  return data.room;
 }
 
-/**
- * Joins an existing room by code. Returns { room } on success or
- * { error } on failure ("NOT_FOUND" | "ALREADY_STARTED").
- * Reconnect-safe: if this tab's player id is already in the room
- * (e.g. a refresh), it's treated as the same player, not a duplicate.
- */
-export function joinRoom(code, playerName) {
-  const room = readRoom(code);
-  if (!room) return { error: "NOT_FOUND" };
-  if (room.phase !== "LOBBY") return { error: "ALREADY_STARTED" };
-
+/** @returns {Promise<{room}|{error}>} */
+export async function joinRoom(roomCode, playerName) {
   const playerId = getOrCreatePlayerId();
-  const existing = room.players.find((p) => p.id === playerId);
+  const existingToken = getSessionToken(roomCode);
 
-  if (existing) {
-    existing.name = playerName.trim() || existing.name;
-  } else {
-    room.players.push({
-      id: playerId,
-      name: playerName.trim() || "Player",
-      isHost: false,
-      ready: false,
-      alive: true,
+  try {
+    const data = await apiPost("joinRoom", {
+      roomCode,
+      playerName,
+      playerId,
+      sessionToken: existingToken || undefined,
     });
+    if (data.playerId !== playerId) setPlayerId(data.playerId);
+    setSessionToken(roomCode, data.sessionToken);
+    return { room: data.room };
+  } catch (err) {
+    return { error: err.message };
   }
-
-  room.revision += 1;
-  return { room: writeRoom(room) };
 }
 
-export function getRoom(code) {
-  return readRoom(code);
-}
-
-export function setOwnReady(code, ready) {
-  const room = readRoom(code);
-  if (!room) return null;
-  const playerId = getOrCreatePlayerId();
-  const player = room.players.find((p) => p.id === playerId);
-  if (!player) return null;
-  player.ready = ready;
-  room.revision += 1;
-  return writeRoom(room);
-}
-
-/** Explicit, deliberate leave (e.g. tapping back) — removes the player from the lobby list. */
-export function leaveRoom(code) {
-  const room = readRoom(code);
-  if (!room) return null;
-  const playerId = getOrCreatePlayerId();
-  room.players = room.players.filter((p) => p.id !== playerId);
-  room.revision += 1;
-  if (room.players.length === 0) {
-    try {
-      window.localStorage.removeItem(roomKey(code));
-    } catch {
-      // Non-fatal — an empty stale room entry just lingers until overwritten.
-    }
+export async function getRoom(roomCode) {
+  try {
+    const data = await apiGet("getRoom", { roomCode });
+    return data.room;
+  } catch {
     return null;
   }
-  return writeRoom(room);
+}
+
+export async function setOwnReady(roomCode, ready) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
+  if (!sessionToken) return null;
+
+  try {
+    const data = await apiPost("setReady", { roomCode, playerId, sessionToken, ready });
+    return data.room;
+  } catch {
+    return null;
+  }
+}
+
+export async function leaveRoom(roomCode) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
+  if (!sessionToken) return;
+
+  try {
+    await apiPost("leaveRoom", { roomCode, playerId, sessionToken });
+  } catch {
+    // Best-effort — if this fails the player just stays in the lobby list
+    // until the room is otherwise cleaned up. Not worth surfacing an error
+    // for what the player experiences as "I clicked back and left."
+  }
 }
 
 /**
- * Subscribes to changes made to this room by OTHER tabs.
- * @returns {() => void} unsubscribe
+ * Polls the backend for changes to `roomCode`, calling `callback(room)`
+ * only when the revision actually changes (or the room disappears).
+ * @returns {() => void} stop polling
  */
-export function subscribeRoom(code, callback) {
-  const key = roomKey(code);
-  function handler(event) {
-    if (event.key === key) {
-      callback(readRoom(code));
+export function subscribeRoom(roomCode, callback) {
+  let stopped = false;
+  let lastRevision = null;
+  let currentInterval = POLL_INTERVAL_MS;
+  let timeoutId = null;
+
+  async function poll() {
+    if (stopped) return;
+
+    try {
+      const room = await getRoom(roomCode);
+      currentInterval = POLL_INTERVAL_MS; // reset backoff on success
+
+      if (!room) {
+        if (lastRevision !== null) {
+          lastRevision = null;
+          callback(null);
+        }
+      } else if (room.revision !== lastRevision) {
+        lastRevision = room.revision;
+        callback(room);
+      }
+    } catch {
+      // Back off on repeated failures (network hiccup, Apps Script quota, etc.)
+      // rather than hammering a struggling backend.
+      currentInterval = Math.min(currentInterval * 2, POLL_BACKOFF_MAX_MS);
+    }
+
+    if (!stopped) {
+      timeoutId = setTimeout(poll, currentInterval);
     }
   }
-  window.addEventListener("storage", handler);
-  return () => window.removeEventListener("storage", handler);
+
+  timeoutId = setTimeout(poll, currentInterval);
+
+  return () => {
+    stopped = true;
+    if (timeoutId) clearTimeout(timeoutId);
+  };
 }

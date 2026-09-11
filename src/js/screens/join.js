@@ -2,6 +2,7 @@ import { renderShell } from "./layout.js";
 import { joinRoom } from "../state/roomStore.js";
 import { normalizeRoomCodeInput, isCompleteRoomCode } from "../utils/roomCode.js";
 import { getStoredPlayerName, setStoredPlayerName, setLastRoomCode } from "../services/identityService.js";
+import { isBackendConfigured } from "../config.js";
 
 export function renderJoin(root, navigate, params = {}) {
   const content = renderShell(root, {
@@ -16,13 +17,20 @@ export function renderJoin(root, navigate, params = {}) {
   content.innerHTML = `
     <form data-role="form" class="btn-block-group" style="flex:1;">
       <div style="flex:1; display:flex; flex-direction:column; gap: var(--space-xl);">
+        ${
+          isBackendConfigured()
+            ? ""
+            : `<div class="card" style="border-color:var(--color-critical-strong);">
+                <p class="field-error" style="margin:0;">The game backend isn't configured yet. See apps-script/README.md to deploy it, then set API_BASE_URL in src/js/config.js.</p>
+              </div>`
+        }
         <div class="field">
           <label for="room-code">Room code</label>
           <input class="text-input code-input" id="room-code" name="roomCode" type="text"
             inputmode="numeric" pattern="[0-9]*" placeholder="000000" maxlength="6"
             autocomplete="off" value="${prefillCode}" />
           <span class="field-error visually-hidden" data-role="code-error">Enter the 6-digit code shown on the host's screen.</span>
-          <span class="field-error visually-hidden" data-role="code-not-found">No room found with that code. Check with your host and try again.</span>
+          <span class="field-error visually-hidden" data-role="join-error"></span>
         </div>
 
         <div class="field">
@@ -34,7 +42,7 @@ export function renderJoin(root, navigate, params = {}) {
         </div>
       </div>
 
-      <button class="btn btn-accent" type="submit">Join room</button>
+      <button class="btn btn-accent" type="submit" data-role="submit">Join room</button>
     </form>
   `;
 
@@ -42,21 +50,22 @@ export function renderJoin(root, navigate, params = {}) {
   const codeInput = content.querySelector("#room-code");
   const nameInput = content.querySelector("#player-name");
   const codeError = content.querySelector('[data-role="code-error"]');
-  const codeNotFound = content.querySelector('[data-role="code-not-found"]');
+  const joinError = content.querySelector('[data-role="join-error"]');
   const nameError = content.querySelector('[data-role="name-error"]');
+  const submitButton = content.querySelector('[data-role="submit"]');
 
   codeInput.addEventListener("input", () => {
     codeInput.value = normalizeRoomCodeInput(codeInput.value);
-    codeNotFound.classList.add("visually-hidden");
+    joinError.classList.add("visually-hidden");
   });
 
-  form.addEventListener("submit", (e) => {
+  form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = normalizeRoomCodeInput(codeInput.value);
     const name = nameInput.value.trim();
     let hasError = false;
 
-    codeNotFound.classList.add("visually-hidden");
+    joinError.classList.add("visually-hidden");
 
     if (!isCompleteRoomCode(code)) {
       codeInput.classList.add("has-error");
@@ -81,21 +90,18 @@ export function renderJoin(root, navigate, params = {}) {
       return;
     }
 
-    const result = joinRoom(code, name);
+    submitButton.disabled = true;
+    submitButton.textContent = "Joining…";
 
-    if (result.error === "NOT_FOUND") {
-      codeInput.classList.add("has-error");
-      codeNotFound.textContent = "No room found with that code. Check with your host and try again.";
-      codeNotFound.classList.remove("visually-hidden");
-      codeInput.focus();
-      return;
-    }
+    const result = await joinRoom(code, name);
 
-    if (result.error === "ALREADY_STARTED") {
+    if (result.error) {
       codeInput.classList.add("has-error");
-      codeNotFound.textContent = "That game has already started.";
-      codeNotFound.classList.remove("visually-hidden");
+      joinError.textContent = result.error;
+      joinError.classList.remove("visually-hidden");
       codeInput.focus();
+      submitButton.disabled = false;
+      submitButton.textContent = "Join room";
       return;
     }
 

@@ -3,6 +3,7 @@ import { getRoom, subscribeRoom, setOwnReady, leaveRoom } from "../state/roomSto
 import { getOrCreatePlayerId } from "../services/identityService.js";
 import { buildJoinUrl, shareJoinLink } from "../services/shareService.js";
 import { encodeQrToSvg } from "../services/qrRenderer.js";
+import { isBackendConfigured } from "../config.js";
 
 export function renderLobby(root, navigate, params = {}) {
   const code = params.code;
@@ -11,13 +12,25 @@ export function renderLobby(root, navigate, params = {}) {
     title: "Lobby",
     showBack: true,
     onBack: () => {
-      leaveRoom(code);
       navigate("/");
+      leaveRoom(code); // fire-and-forget: don't make the player wait on their way out
     },
   });
 
   if (!code) {
     navigate("/");
+    return;
+  }
+
+  if (!isBackendConfigured()) {
+    content.innerHTML = `
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-base); text-align:center;">
+        <p class="section-title">Backend not configured</p>
+        <p class="status-text">See apps-script/README.md to deploy the backend, then set API_BASE_URL in src/js/config.js.</p>
+        <button class="btn btn-primary" type="button" data-role="home" style="width:auto; padding-left:24px; padding-right:24px;">Back home</button>
+      </div>
+    `;
+    content.querySelector('[data-role="home"]').addEventListener("click", () => navigate("/"));
     return;
   }
 
@@ -29,25 +42,34 @@ export function renderLobby(root, navigate, params = {}) {
     return div.innerHTML;
   }
 
+  function drawLoading() {
+    content.innerHTML = `
+      <div style="flex:1; display:flex; align-items:center; justify-content:center;">
+        <p class="status-text">Loading room…</p>
+      </div>
+    `;
+  }
+
+  function drawUnavailable() {
+    content.innerHTML = `
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-base); text-align:center;">
+        <p class="section-title">This room isn't available</p>
+        <p class="status-text">It may have ended, or the code was mistyped.</p>
+        <button class="btn btn-primary" type="button" data-role="home" style="width:auto; padding-left:24px; padding-right:24px;">Back home</button>
+      </div>
+    `;
+    content.querySelector('[data-role="home"]').addEventListener("click", () => navigate("/"));
+  }
+
   function draw(room) {
     if (!room) {
-      // The room disappeared (e.g. everyone else left, or it only exists
-      // in a different browser/device — rooms don't sync across devices
-      // until Phase 3's real backend).
-      content.innerHTML = `
-        <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-base); text-align:center;">
-          <p class="section-title">This room isn't available</p>
-          <p class="status-text">It may have ended, or it only exists in a different browser/device.</p>
-          <button class="btn btn-primary" type="button" data-role="home" style="width:auto; padding-left:24px; padding-right:24px;">Back home</button>
-        </div>
-      `;
-      content.querySelector('[data-role="home"]').addEventListener("click", () => navigate("/"));
+      drawUnavailable();
       return;
     }
 
     const ownPlayer = room.players.find((p) => p.id === ownPlayerId);
     if (!ownPlayer) {
-      // We're not (or no longer) a player in this room.
+      // We're not (or no longer) a player in this room from the backend's point of view.
       navigate("/");
       return;
     }
@@ -102,9 +124,12 @@ export function renderLobby(root, navigate, params = {}) {
       )
       .join("");
 
-    content.querySelector('[data-role="ready"]').addEventListener("click", () => {
-      const updated = setOwnReady(code, !ownPlayer.ready);
+    const readyButton = content.querySelector('[data-role="ready"]');
+    readyButton.addEventListener("click", async () => {
+      readyButton.disabled = true;
+      const updated = await setOwnReady(code, !ownPlayer.ready);
       if (updated) draw(updated);
+      else readyButton.disabled = false;
     });
 
     content.querySelector('[data-role="share"]').addEventListener("click", async () => {
@@ -114,7 +139,8 @@ export function renderLobby(root, navigate, params = {}) {
     });
   }
 
-  draw(getRoom(code));
+  drawLoading();
+  getRoom(code).then(draw);
   const unsubscribe = subscribeRoom(code, draw);
 
   return () => unsubscribe();
