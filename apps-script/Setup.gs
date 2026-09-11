@@ -21,7 +21,7 @@ const CONFIG = {
  * that's expected (see APPS_SCRIPT_SETUP.md Step 5).
  */
 function initializeMafiaStorage() {
-  if (CONFIG.DRIVE_ROOT_FOLDER_ID === "1T1EH-T3Wy8B539CukUScAahTDtMEZve5") {
+  if (CONFIG.DRIVE_ROOT_FOLDER_ID === "PASTE_YOUR_DRIVE_FOLDER_ID_HERE") {
     throw new Error(
       "Set CONFIG.DRIVE_ROOT_FOLDER_ID in Setup.gs to your Drive folder's ID before running this."
     );

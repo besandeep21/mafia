@@ -18,11 +18,13 @@
  * Strips fields that must never leave the backend — currently just
  * session tokens, per ARCHITECTURE.md §5: "Never return session tokens
  * belonging to other players." (We strip our own too; the caller
- * already has it from the original create/join response.)
+ * already has it from the original create/join response.) Also strips
+ * role assignments and night/vote actions, which belong in the private
+ * or Mafia-faction projections below, never the public one.
  */
 function toPublicRoom_(room) {
   if (!room) return null;
-  return {
+  const publicRoom = {
     roomCode: room.roomCode,
     roomName: room.roomName,
     phase: room.phase,
@@ -35,6 +37,86 @@ function toPublicRoom_(room) {
       ready: p.ready,
       alive: p.alive,
     })),
+  };
+
+  if (room.game) {
+    publicRoom.round = room.game.round;
+    publicRoom.deadline = room.game.deadline;
+    publicRoom.publicHistory = room.game.publicHistory;
+    publicRoom.winner = room.game.winner;
+    if (room.phase === "ROLE_REVEAL") {
+      publicRoom.acknowledgedCount = Object.keys(room.game.acknowledged).length;
+    }
+    if (room.phase === "VOTING") {
+      publicRoom.votedCount = Object.keys(room.game.votes).length;
+    }
+    if (room.phase === "GAME_OVER") {
+      // Safe to reveal every role once the game has actually ended — there
+      // are no more decisions left for that information to compromise.
+      publicRoom.roles = room.game.roles;
+    }
+  }
+
+  return publicRoom;
+}
+
+/**
+ * Private projection: only ever returned to the player it's about.
+ * Per ARCHITECTURE.md §6 — "ownRole, ownRoleState, ownAction..."
+ */
+function toPrivateProjection_(room, playerId) {
+  if (!room.game || !room.game.roles[playerId]) return null;
+
+  const projection = {
+    role: room.game.roles[playerId],
+  };
+
+  if (room.phase === "ROLE_REVEAL") {
+    projection.acknowledged = !!room.game.acknowledged[playerId];
+  }
+  if (room.phase === "NIGHT" && room.game.roles[playerId] === ROLE_MAFIA) {
+    const action = room.game.nightActions[playerId];
+    projection.nightAction = action ? { targetId: action.targetId, finalized: action.finalized } : null;
+  }
+  if (room.phase === "VOTING") {
+    projection.votedFor = room.game.votes[playerId] || null;
+  }
+
+  return projection;
+}
+
+/**
+ * Mafia-faction projection: teammate identities and everyone's current
+ * night selections, per ARCHITECTURE.md §6 — only ever returned to a
+ * living Mafia member, never anyone else.
+ */
+function toMafiaProjection_(room, playerId) {
+  if (!room.game) return null;
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player || !player.alive || room.game.roles[playerId] !== ROLE_MAFIA) return null;
+
+  const teammates = room.players
+    .filter((p) => room.game.roles[p.id] === ROLE_MAFIA)
+    .map((p) => ({ id: p.id, name: p.name, alive: p.alive }));
+
+  const selections = {};
+  if (room.phase === "NIGHT") {
+    livingMafiaIds_(room).forEach((id) => {
+      const action = room.game.nightActions[id];
+      selections[id] = action ? { targetId: action.targetId, finalized: action.finalized } : null;
+    });
+  }
+
+  return { teammates, selections };
+}
+
+/** Bundles all three projections for the given viewer into one response payload. */
+function projectionResult_(room, viewerPlayerId) {
+  return {
+    ok: true,
+    room: toPublicRoom_(room),
+    private: viewerPlayerId ? toPrivateProjection_(room, viewerPlayerId) : null,
+    mafia: viewerPlayerId ? toMafiaProjection_(room, viewerPlayerId) : null,
   };
 }
 
@@ -162,11 +244,28 @@ function joinRoomRecord_(roomCode, playerName, clientPlayerId, clientSessionToke
   });
 }
 
-/** @returns {{ok:true, room}|{ok:false, error}} */
-function getRoomRecord_(roomCode) {
-  const room = readRoom_(roomCode);
-  if (!room) return { ok: false, error: "No room found with that code." };
-  return { ok: true, room: toPublicRoom_(room) };
+/**
+ * @param {string} roomCode
+ * @param {string} [viewerPlayerId] if provided with a valid `viewerSessionToken`,
+ *   private/Mafia projections for that player are included too.
+ * @param {string} [viewerSessionToken]
+ * @returns {{ok:true, room, private, mafia}|{ok:false, error}}
+ */
+function getRoomRecord_(roomCode, viewerPlayerId, viewerSessionToken) {
+  return withLock_(() => {
+    const room = readRoom_(roomCode);
+    if (!room) return { ok: false, error: "No room found with that code." };
+
+    const changed = resolvePendingTimeouts_(room);
+    if (changed) writeRoom_(room);
+
+    const authedViewer =
+      viewerPlayerId && viewerSessionToken && findAuthedPlayer_(room, viewerPlayerId, viewerSessionToken)
+        ? viewerPlayerId
+        : null;
+
+    return projectionResult_(room, authedViewer);
+  });
 }
 
 function findAuthedPlayer_(room, playerId, sessionToken) {

@@ -84,3 +84,14 @@ function validateAuthedPayload_(payload) {
   }
   return { roomCode: payload.roomCode, playerId: payload.playerId, sessionToken: payload.sessionToken };
 }
+
+/** Authed payload + a targetPlayerId (used by night actions and votes). */
+function validateTargetedActionPayload_(payload) {
+  const base = validateAuthedPayload_(payload);
+  if (base.error) return base;
+  if (!isValidUuidLike_(payload.targetPlayerId)) {
+    return { error: "Choose a player to target." };
+  }
+  base.targetPlayerId = payload.targetPlayerId;
+  return base;
+}

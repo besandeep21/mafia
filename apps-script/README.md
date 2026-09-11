@@ -27,7 +27,6 @@ specific to the actual code below.
 
 ## Deploying this specific code
 
-
 1. Follow `APPS_SCRIPT_SETUP.md` Steps 1–2 to create your Drive folder
    and a new Apps Script project.
 2. Create each file listed above in the Apps Script editor (matching

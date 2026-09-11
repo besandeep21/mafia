@@ -26,7 +26,6 @@ function doGet(e) {
   if (params.action === "getRoom") {
     return handleGetRoom_(params);
   }
-
   return errorResponse_("Unknown action: " + params.action);
 }
 
@@ -50,6 +49,14 @@ function doPost(e) {
       return handleSetReady_(payload);
     case "leaveRoom":
       return handleLeaveRoom_(payload);
+    case "startGame":
+      return handleStartGame_(payload);
+    case "acknowledgeRole":
+      return handleAcknowledgeRole_(payload);
+    case "submitNightAction":
+      return handleSubmitNightAction_(payload);
+    case "submitVote":
+      return handleSubmitVote_(payload);
     default:
       return errorResponse_("Unknown action: " + action);
   }

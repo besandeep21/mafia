@@ -262,6 +262,97 @@
   background: var(--color-primary);
 }
 
+/* Selectable player row — used for night-action targeting and voting */
+.player-row-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-base);
+  width: 100%;
+  padding: var(--space-base);
+  background: var(--color-surface-soft);
+  border: 2px solid transparent;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  font-size: var(--type-body-md-size);
+  color: var(--color-ink-deep);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.player-row-select.is-selected {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-soft));
+}
+
+.player-row-select:disabled,
+.player-row-select.is-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.player-row-select__name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+}
+
+/* Role reveal card */
+.role-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-base);
+  text-align: center;
+  padding: var(--space-xxl);
+  border-radius: var(--radius-xxxl);
+  background: var(--color-ink-deep);
+  color: var(--color-canvas);
+}
+
+.role-card__label {
+  font-size: var(--type-caption-size);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-stone);
+}
+
+.role-card__name {
+  font-size: var(--type-display-lg-size);
+  font-weight: var(--type-heading-lg-weight);
+}
+
+.role-card__description {
+  color: var(--color-stone);
+  font-size: var(--type-body-sm-size);
+}
+
+/* Timer */
+.timer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xxs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: var(--type-heading-sm-size);
+  color: var(--color-ink-deep);
+}
+
+/* Vote / night history breakdown */
+.result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-base);
+  border-bottom: 1px solid var(--color-hairline-soft);
+  font-size: var(--type-body-sm-size);
+}
+
+.result-row:last-child {
+  border-bottom: none;
+}
+
 /* ---------- Room code / QR display ---------- */
 
 .room-code-display {

@@ -189,3 +189,77 @@ CLAUDE_PROJECT_INSTRUCTIONS.md §21 and the master instructions'
     burning through Apps Script's daily quota during a network hiccup;
     resetting to the base interval on the next success keeps the lobby
     feeling responsive again as soon as things recover.
+
+## Phase 4
+
+20. **Only Mafia + Villager exist**, per `CLAUDE_PROJECT_INSTRUCTIONS.md`'s
+    own phase breakdown — Doctor/Seer/Trickster/Resurrector are
+    explicitly Phase 5. `Roles.gs` and the resolution order in
+    `GameEngine.gs` are structured so adding them later touches those
+    two files, not the room/session plumbing.
+
+21. **No host-configurable role counts yet.** `defaultMafiaCount_()` in
+    `Roles.gs` picks automatically (~1 Mafia per 4 players, capped below
+    parity) rather than exposing a settings screen. Phase 4's acceptance
+    criterion is "Mafia + Villager game works end-to-end," not a host
+    configuration UI — that's a reasonable later addition, not required
+    here. Minimum 3 players to start, enforced server-side.
+
+22. **Intermediate computational phases (role assignment, night
+    resolution, vote resolution, win-check) are never persisted as their
+    own observable phase.** `ARCHITECTURE.md` §7 lists NIGHT_RESOLUTION,
+    VOTE_RESOLUTION, and WIN_CHECK as states in the machine, but nothing
+    ever *waits* during them — they're synchronous computations that
+    happen inside whichever request triggers them, and the room lands on
+    the next actually-waiting phase before it's ever written to Drive. A
+    polling client could never observe them as a distinct value even if
+    they were stored. See `GameEngine.gs`'s top comment.
+
+23. **A single, centralized `evaluateWinner_()` function decides the
+    winner** (`Roles.gs`), called from exactly one place after every
+    death (`checkWinAndMaybeEnd_()` in `GameEngine.gs`). This directly
+    satisfies `GAME_RULES.md`'s explicit instruction: "The final
+    implementation must centralize victory evaluation in one function so
+    rules are not duplicated across screens."
+
+24. **DAY and DISCUSSION share one frontend renderer** (`day.js`'s
+    `renderDay(content, state, ctx, mode)`), since both are "no action,
+    just watch a timer" screens differing only in copy. This also means
+    a client whose poll happens to land after DAY's deadline but before
+    DISCUSSION's remainder ever renders is not a real information loss —
+    both modes show the same night-result summary.
+
+25. **Backend-verified bug: timeout-driven phase transitions weren't
+    bumping `revision`.** Every *explicit* action (submitVote,
+    submitNightAction, etc.) incremented `room.revision` itself before
+    triggering any resulting resolution — but the purely time-driven
+    transitions applied lazily inside `getRoomRecord_`
+    (`resolvePendingTimeouts_()` advancing DAY→DISCUSSION→VOTING, or
+    forcing an unfinalized night/vote to resolve) did not. Since
+    `roomStore.js`'s polling only re-renders when the revision number
+    changes, this meant a phase could genuinely change on the backend
+    while every polling client's screen silently never updated — a
+    freeze bug that would only show up under real timeout conditions,
+    not under normal "everyone acted before the deadline" play. Caught
+    by a 5-real-browser Playwright test that hung waiting for the Voting
+    screen; fixed by making `resolvePendingTimeouts_()` bump revision on
+    every transition it applies; confirmed with both a dedicated
+    regression test (asserting revision strictly increases across each
+    forced transition) and by re-running the full multi-browser game to
+    completion.
+
+26. **Once `GAME_OVER`, all roles are revealed in the public
+    projection.** `ARCHITECTURE.md`'s public/private/faction split exists
+    to protect information that still matters to outstanding decisions;
+    once the game has actually ended there are none left, so a full
+    reveal (matching common Mafia practice) costs nothing and the
+    Game Over screen would otherwise have no way to show final roles.
+
+27. **Mid-game "back" doesn't remove the player from the game.**
+    `GAME_RULES.md` requires the game to survive a disconnect — pressing
+    back is functionally equivalent to a disconnect while a game is
+    active (as opposed to in the LOBBY or after GAME_OVER, where leaving
+    the room record entirely is correct). `lobby.js` tracks the latest
+    known phase and only calls `leaveRoom()` for LOBBY/GAME_OVER; during
+    an active game it just navigates away, leaving the session token
+    valid for whenever that player returns.

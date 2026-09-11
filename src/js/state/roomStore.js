@@ -1,27 +1,22 @@
 /**
  * roomStore
  *
- * Phase 3 replaces Phase 2's localStorage-simulated backend with real
- * HTTP calls to the deployed Apps Script Web App. Every function here
- * keeps the same name/shape screens already call (createRoom, joinRoom,
- * getRoom, setOwnReady, leaveRoom, subscribeRoom) — only now they're
- * async and can fail over the network, which screens must handle.
+ * Phase 3 replaced the localStorage mock with real HTTP calls to the
+ * Apps Script backend. Phase 4 extends this with the game actions
+ * (startGame, acknowledgeRole, submitNightAction, submitVote) and
+ * switches polling to always send this device's identity, since the
+ * backend now has private (own role) and Mafia-faction (teammates +
+ * selections) projections to return alongside the public room — per
+ * ARCHITECTURE.md §6, screens must never see more than they're
+ * entitled to, so authenticating every poll is what makes that
+ * enforcement possible without a separate request per projection.
  *
- * There is still no push mechanism (Apps Script Web Apps can't do
- * WebSockets), so subscribeRoom polls, per ARCHITECTURE.md §19's quota
- * guidance: every few seconds, with backoff on failure, and an
- * immediate one-off refresh right after this device's own actions
- * (already covered since create/join/setOwnReady return the fresh room
- * directly from their own response).
+ * subscribeRoom's callback now receives `{ room, private, mafia }`
+ * instead of a bare room object.
  */
 
 import { apiGet, apiPost } from "../services/apiClient.js";
-import {
-  getOrCreatePlayerId,
-  setPlayerId,
-  getSessionToken,
-  setSessionToken,
-} from "../services/identityService.js";
+import { getOrCreatePlayerId, setPlayerId, getSessionToken, setSessionToken } from "../services/identityService.js";
 
 const POLL_INTERVAL_MS = 4000; // within ARCHITECTURE.md's suggested 3-5s lobby range
 const POLL_BACKOFF_MAX_MS = 20000;
@@ -54,10 +49,13 @@ export async function joinRoom(roomCode, playerName) {
   }
 }
 
-export async function getRoom(roomCode) {
+/** @returns {Promise<{room, private, mafia}|null>} */
+export async function getRoomState(roomCode) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
   try {
-    const data = await apiGet("getRoom", { roomCode });
-    return data.room;
+    const data = await apiGet("getRoom", { roomCode, playerId, sessionToken: sessionToken || "" });
+    return { room: data.room, private: data.private, mafia: data.mafia };
   } catch {
     return null;
   }
@@ -90,9 +88,66 @@ export async function leaveRoom(roomCode) {
   }
 }
 
+/** @returns {Promise<{room,private,mafia}|{error}>} */
+export async function startGame(roomCode) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
+  if (!sessionToken) return { error: "Your session for this room is no longer valid." };
+
+  try {
+    const data = await apiPost("startGame", { roomCode, playerId, sessionToken });
+    return { room: data.room, private: data.private, mafia: data.mafia };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/** @returns {Promise<{room,private,mafia}|{error}>} */
+export async function acknowledgeRole(roomCode) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
+  if (!sessionToken) return { error: "Your session for this room is no longer valid." };
+
+  try {
+    const data = await apiPost("acknowledgeRole", { roomCode, playerId, sessionToken });
+    return { room: data.room, private: data.private, mafia: data.mafia };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/** @returns {Promise<{room,private,mafia}|{error}>} */
+export async function submitNightAction(roomCode, targetPlayerId, finalized) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
+  if (!sessionToken) return { error: "Your session for this room is no longer valid." };
+
+  try {
+    const data = await apiPost("submitNightAction", { roomCode, playerId, sessionToken, targetPlayerId, finalized });
+    return { room: data.room, private: data.private, mafia: data.mafia };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/** @returns {Promise<{room,private,mafia}|{error}>} */
+export async function submitVote(roomCode, targetPlayerId) {
+  const playerId = getOrCreatePlayerId();
+  const sessionToken = getSessionToken(roomCode);
+  if (!sessionToken) return { error: "Your session for this room is no longer valid." };
+
+  try {
+    const data = await apiPost("submitVote", { roomCode, playerId, sessionToken, targetPlayerId });
+    return { room: data.room, private: data.private, mafia: data.mafia };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
 /**
- * Polls the backend for changes to `roomCode`, calling `callback(room)`
- * only when the revision actually changes (or the room disappears).
+ * Polls the backend for changes to `roomCode`, calling
+ * `callback({ room, private, mafia })` only when the room's revision
+ * actually changes (or the room disappears, in which case `room` is null).
  * @returns {() => void} stop polling
  */
 export function subscribeRoom(roomCode, callback) {
@@ -105,17 +160,17 @@ export function subscribeRoom(roomCode, callback) {
     if (stopped) return;
 
     try {
-      const room = await getRoom(roomCode);
+      const state = await getRoomState(roomCode);
       currentInterval = POLL_INTERVAL_MS; // reset backoff on success
 
-      if (!room) {
+      if (!state || !state.room) {
         if (lastRevision !== null) {
           lastRevision = null;
-          callback(null);
+          callback({ room: null, private: null, mafia: null });
         }
-      } else if (room.revision !== lastRevision) {
-        lastRevision = room.revision;
-        callback(room);
+      } else if (state.room.revision !== lastRevision) {
+        lastRevision = state.room.revision;
+        callback(state);
       }
     } catch {
       // Back off on repeated failures (network hiccup, Apps Script quota, etc.)

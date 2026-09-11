@@ -39,6 +39,12 @@ export function renderShell(root, opts) {
   return root.querySelector('[data-role="content"]');
 }
 
+export function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str == null ? "" : String(str);
+  return div.innerHTML;
+}
+
 let toastTimer = null;
 
 /**
@@ -59,4 +65,33 @@ export function showToast(message) {
   toastTimer = setTimeout(() => {
     toast.classList.remove("is-visible");
   }, 2200);
+}
+
+/**
+ * Formats milliseconds remaining as "M:SS", floored at 0. The countdown
+ * shown is purely visual — per GAME_RULES.md's timer philosophy, the
+ * server's deadline is what actually resolves a phase, never the
+ * client's own clock.
+ */
+export function formatRemaining(deadlineMs) {
+  const remainingMs = Math.max(0, (deadlineMs || 0) - Date.now());
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+/**
+ * Starts a 1s-interval ticker that updates a timer element's text.
+ * @param {HTMLElement} el
+ * @param {number} deadlineMs
+ * @returns {() => void} stop the ticker
+ */
+export function startCountdown(el, deadlineMs) {
+  if (!el || !deadlineMs) return () => {};
+  el.textContent = formatRemaining(deadlineMs);
+  const id = setInterval(() => {
+    el.textContent = formatRemaining(deadlineMs);
+  }, 1000);
+  return () => clearInterval(id);
 }
