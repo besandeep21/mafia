@@ -1,4 +1,4 @@
-# Mafia Webapp
+# Mafia Mobile Webapp
 
 A mobile-first Progressive Web App for playing Mafia with a physical
 group, with no human moderator. See the project's `CLAUDE_PROJECT_INSTRUCTIONS.md`,
