@@ -117,13 +117,21 @@ export async function acknowledgeRole(roomCode) {
 }
 
 /** @returns {Promise<{room,private,mafia}|{error}>} */
-export async function submitNightAction(roomCode, targetPlayerId, finalized) {
+/**
+ * @param {string} roomCode
+ * @param {string} [targetPlayerId] required unless `skip` is true
+ * @param {boolean} [finalized] Mafia-only: locks in the choice for the unanimity check
+ * @param {boolean} [skip] Doctor/Seer/Trickster/Resurrector only: explicitly
+ *   choosing not to act tonight rather than leaving it ambiguous
+ * @returns {Promise<{room,private,mafia}|{error}>}
+ */
+export async function submitNightAction(roomCode, targetPlayerId, finalized, skip) {
   const playerId = getOrCreatePlayerId();
   const sessionToken = getSessionToken(roomCode);
   if (!sessionToken) return { error: "Your session for this room is no longer valid." };
 
   try {
-    const data = await apiPost("submitNightAction", { roomCode, playerId, sessionToken, targetPlayerId, finalized });
+    const data = await apiPost("submitNightAction", { roomCode, playerId, sessionToken, targetPlayerId, finalized, skip });
     return { room: data.room, private: data.private, mafia: data.mafia };
   } catch (err) {
     return { error: err.message };

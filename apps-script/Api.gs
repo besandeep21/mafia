@@ -76,7 +76,7 @@ function handleAcknowledgeRole_(payload) {
 }
 
 function handleSubmitNightAction_(payload) {
-  const validated = validateTargetedActionPayload_(payload);
+  const validated = validateNightActionPayload_(payload);
   if (validated.error) return errorResponse_(validated.error);
 
   const result = submitNightActionRecord_(
@@ -84,7 +84,8 @@ function handleSubmitNightAction_(payload) {
     validated.playerId,
     validated.sessionToken,
     validated.targetPlayerId,
-    !!payload.finalized
+    validated.finalized,
+    validated.skip
   );
   return result.ok
     ? okResponse_({ room: result.room, private: result.private, mafia: result.mafia })

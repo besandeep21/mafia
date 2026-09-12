@@ -85,7 +85,7 @@ function validateAuthedPayload_(payload) {
   return { roomCode: payload.roomCode, playerId: payload.playerId, sessionToken: payload.sessionToken };
 }
 
-/** Authed payload + a targetPlayerId (used by night actions and votes). */
+/** Authed payload + a targetPlayerId (used by votes, which always require a target). */
 function validateTargetedActionPayload_(payload) {
   const base = validateAuthedPayload_(payload);
   if (base.error) return base;
@@ -93,5 +93,26 @@ function validateTargetedActionPayload_(payload) {
     return { error: "Choose a player to target." };
   }
   base.targetPlayerId = payload.targetPlayerId;
+  return base;
+}
+
+/**
+ * Authed payload + either a targetPlayerId OR an explicit skip flag —
+ * used by night actions, where Doctor/Seer/Trickster/Resurrector may
+ * deliberately choose not to act on a given night (see GameEngine.gs).
+ */
+function validateNightActionPayload_(payload) {
+  const base = validateAuthedPayload_(payload);
+  if (base.error) return base;
+
+  if (payload.skip) {
+    base.skip = true;
+    return base;
+  }
+  if (!isValidUuidLike_(payload.targetPlayerId)) {
+    return { error: "Choose a player to target, or skip." };
+  }
+  base.targetPlayerId = payload.targetPlayerId;
+  base.finalized = !!payload.finalized;
   return base;
 }

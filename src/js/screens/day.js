@@ -1,16 +1,33 @@
 import { escapeHtml, startCountdown } from "./layout.js";
 
 function describeNightResult(room) {
-  const lastNight = [...room.publicHistory]
-    .reverse()
-    .find((h) => h.type === "NIGHT_DEATH" || h.type === "NO_NIGHT_DEATH");
+  const lastNight = [...room.publicHistory].reverse().find((h) => h.type === "NIGHT_RESULT");
   if (!lastNight) return null;
 
-  if (lastNight.type === "NO_NIGHT_DEATH") {
-    return "No one died last night.";
+  const lines = [];
+
+  if (lastNight.deaths.length === 0) {
+    lines.push("No one died last night.");
+  } else {
+    const names = lastNight.deaths
+      .map((id) => room.players.find((p) => p.id === id))
+      .filter(Boolean)
+      .map((p) => p.name);
+    if (names.length === 1) {
+      lines.push(`${names[0]} was killed during the night.`);
+    } else if (names.length > 1) {
+      lines.push(`${names.slice(0, -1).join(", ")} and ${names[names.length - 1]} were killed during the night.`);
+    } else {
+      lines.push("A player was killed during the night.");
+    }
   }
-  const victim = room.players.find((p) => p.id === lastNight.playerId);
-  return victim ? `${victim.name} was killed during the night.` : "A player was killed during the night.";
+
+  if (lastNight.revived) {
+    const revivedPlayer = room.players.find((p) => p.id === lastNight.revived);
+    if (revivedPlayer) lines.push(`${revivedPlayer.name} was mysteriously revived overnight!`);
+  }
+
+  return lines.join(" ");
 }
 
 function describeLastVote(room) {

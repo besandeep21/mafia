@@ -78,47 +78,118 @@ function startNightPhase_(room) {
   room.game.votes = {};
 }
 
-/** Marks a winner and freezes the room, if the current state already decides the game. */
+/**
+ * Marks winner(s) and freezes the room, if the current state already
+ * decides the game. The Trickster's win (GAME_RULES.md: "wins if alive
+ * when the game reaches a terminal game-over state") is independent of
+ * and layered on top of the Town/Mafia result — both can be true at
+ * once, so `winners` is an array, not a single value.
+ */
 function checkWinAndMaybeEnd_(room) {
-  const winner = evaluateWinner_(room);
-  if (winner) {
-    room.phase = "GAME_OVER";
-    room.game.winner = winner;
-    room.game.deadline = null;
-    room.game.publicHistory.push({ round: room.game.round, type: "GAME_OVER", winner });
-    return true;
-  }
-  return false;
+  const primaryWinner = evaluateWinner_(room);
+  if (!primaryWinner) return false;
+
+  const winners = [primaryWinner];
+  const livingTrickster = livingPlayerWithRole_(room, ROLE_TRICKSTER);
+  if (livingTrickster) winners.push("TRICKSTER");
+
+  room.phase = "GAME_OVER";
+  room.game.winners = winners;
+  room.game.deadline = null;
+  room.game.publicHistory.push({ round: room.game.round, type: "GAME_OVER", winners });
+  return true;
 }
 
 /**
- * Resolves the night kill if the Mafia are unanimous (or forces a
- * no-kill result if called because the deadline passed and they
- * weren't). Per GAME_RULES.md: "Mafia kill succeeds only if every
- * living Mafia member finalized the same target."
+ * Resolves the full night, per ARCHITECTURE.md §10's action order:
+ * protection -> Mafia kill -> Trickster kill -> Resurrector -> apply
+ * deaths/revivals together -> Seer result -> public history -> win check.
+ * Called either because Mafia just reached unanimity (early) or because
+ * the deadline passed (forced — uses whatever was actually submitted;
+ * anyone who didn't act simply has no effect).
  */
 function resolveNight_(room) {
-  const livingMafia = livingMafiaIds_(room);
-  const allFinalized =
-    livingMafia.length > 0 &&
-    livingMafia.every((id) => room.game.nightActions[id] && room.game.nightActions[id].finalized);
+  const roles = room.game.roles;
+  const actions = room.game.nightActions;
 
-  let killedId = null;
-  if (allFinalized) {
-    const targets = livingMafia.map((id) => room.game.nightActions[id].targetId);
-    const unanimous = targets.every((t) => t === targets[0]);
-    if (unanimous) killedId = targets[0];
+  /** A role's real (non-skip) chosen target, or null if they didn't act. */
+  function chosenTarget(playerId) {
+    const action = playerId && actions[playerId];
+    return action && !action.skipped && action.targetId ? action.targetId : null;
   }
 
-  if (killedId) {
-    const victim = room.players.find((p) => p.id === killedId);
+  // 1. Doctor protection.
+  const doctorId = livingPlayerWithRole_(room, ROLE_DOCTOR);
+  const protectedId = chosenTarget(doctorId);
+
+  // 2. Mafia kill — unanimous living Mafia only; Doctor protection cancels it.
+  const livingMafia = livingMafiaIds_(room);
+  const allFinalized =
+    livingMafia.length > 0 && livingMafia.every((id) => actions[id] && actions[id].finalized);
+  let mafiaVictim = null;
+  if (allFinalized) {
+    const targets = livingMafia.map((id) => actions[id].targetId);
+    if (targets.every((t) => t === targets[0])) mafiaVictim = targets[0];
+  }
+  if (mafiaVictim && mafiaVictim === protectedId) mafiaVictim = null;
+
+  // 3. Trickster kill — one use for the whole game; Doctor protection does NOT block it.
+  const tricksterId = livingPlayerWithRole_(room, ROLE_TRICKSTER);
+  let tricksterVictim = null;
+  if (tricksterId && !hasUsedAbility_(room, tricksterId)) {
+    const target = chosenTarget(tricksterId);
+    if (target) {
+      tricksterVictim = target;
+      markAbilityUsed_(room, tricksterId);
+    }
+  }
+
+  // 4. Resurrector — revives someone who was already dead BEFORE tonight
+  // (their target pool is validated as dead-at-submission-time in
+  // submitNightActionRecord_, so it can never overlap with a fresh kill
+  // decided in steps 2-3 above). Consumed on attempt, even if by
+  // resolution time the target is no longer eligible.
+  const resurrectorId = livingPlayerWithRole_(room, ROLE_RESURRECTOR);
+  let revivedId = null;
+  if (resurrectorId && !hasUsedAbility_(room, resurrectorId)) {
+    const target = chosenTarget(resurrectorId);
+    if (target) {
+      markAbilityUsed_(room, resurrectorId);
+      const targetPlayer = room.players.find((p) => p.id === target);
+      if (targetPlayer && !targetPlayer.alive) revivedId = target;
+    }
+  }
+
+  // 5. Apply every death and the revival together.
+  const deaths = [];
+  if (mafiaVictim) deaths.push(mafiaVictim);
+  if (tricksterVictim && tricksterVictim !== mafiaVictim) deaths.push(tricksterVictim);
+  deaths.forEach((id) => {
+    const victim = room.players.find((p) => p.id === id);
     if (victim) victim.alive = false;
+  });
+  if (revivedId) {
+    const revivedPlayer = room.players.find((p) => p.id === revivedId);
+    if (revivedPlayer) revivedPlayer.alive = true; // role/state untouched — spent abilities stay spent
+  }
+
+  // 6. Seer investigation — private result, resolved against the target's
+  // actual role at resolution time, delivered only to the Seer themselves.
+  const seerId = livingPlayerWithRole_(room, ROLE_SEER);
+  if (seerId) {
+    const target = chosenTarget(seerId);
+    if (target) {
+      const result = roles[target] === ROLE_MAFIA ? "MAFIA" : "NOT_MAFIA";
+      if (!room.game.seerResults[seerId]) room.game.seerResults[seerId] = [];
+      room.game.seerResults[seerId].push({ round: room.game.round, targetId: target, result });
+    }
   }
 
   room.game.publicHistory.push({
     round: room.game.round,
-    type: killedId ? "NIGHT_DEATH" : "NO_NIGHT_DEATH",
-    playerId: killedId,
+    type: "NIGHT_RESULT",
+    deaths,
+    revived: revivedId,
   });
 
   if (checkWinAndMaybeEnd_(room)) return;
@@ -201,11 +272,13 @@ function startGameRecord_(roomCode, callerPlayerId, callerSessionToken) {
     room.game = {
       round: 1,
       roles: assignRoles_(room.players),
+      roleState: {},
+      seerResults: {},
       acknowledged: {},
       nightActions: {},
       votes: {},
       publicHistory: [],
-      winner: null,
+      winners: [],
       deadline: nowMs_() + PHASE_DURATIONS_MS.ROLE_REVEAL,
     };
     room.phase = "ROLE_REVEAL";
@@ -244,8 +317,19 @@ function acknowledgeRoleRecord_(roomCode, playerId, sessionToken) {
   });
 }
 
-/** @returns {{ok:true, room, private, mafia}|{ok:false, error}} */
-function submitNightActionRecord_(roomCode, playerId, sessionToken, targetId, finalized) {
+/**
+ * @param {string} roomCode
+ * @param {string} playerId
+ * @param {string} sessionToken
+ * @param {string} [targetId] required unless `skip` is true
+ * @param {boolean} [finalized] Mafia-only: locks in their choice for the unanimity check
+ * @param {boolean} [skip] Doctor/Seer/Trickster/Resurrector only: an explicit
+ *   "I'm not using my action tonight" — lets the night resolve without
+ *   forcing every optional role to act, while still recording that they
+ *   made a deliberate choice rather than just not noticing.
+ * @returns {{ok:true, room, private, mafia}|{ok:false, error}}
+ */
+function submitNightActionRecord_(roomCode, playerId, sessionToken, targetId, finalized, skip) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
     if (!room) return { ok: false, error: "No room found with that code." };
@@ -259,15 +343,38 @@ function submitNightActionRecord_(roomCode, playerId, sessionToken, targetId, fi
       return { ok: false, error: "It's not the night phase right now." };
     }
     if (!player.alive) return { ok: false, error: "Dead players can't act." };
-    if (room.game.roles[playerId] !== ROLE_MAFIA) {
-      return { ok: false, error: "You have no night action." };
+
+    const role = room.game.roles[playerId];
+    if (role === ROLE_VILLAGER) return { ok: false, error: "You have no night action." };
+
+    if (skip) {
+      if (role === ROLE_MAFIA) return { ok: false, error: "The Mafia kill needs a target, not a skip." };
+      if ((role === ROLE_TRICKSTER || role === ROLE_RESURRECTOR) && hasUsedAbility_(room, playerId)) {
+        return { ok: false, error: "You've already used that ability." };
+      }
+      room.game.nightActions[playerId] = { targetId: null, finalized: true, skipped: true };
+    } else {
+      const target = room.players.find((p) => p.id === targetId);
+      if (!target) return { ok: false, error: "Choose a player to target." };
+
+      if (role === ROLE_MAFIA || role === ROLE_DOCTOR || role === ROLE_SEER) {
+        if (!target.alive) return { ok: false, error: "Choose a living player to target." };
+      } else if (role === ROLE_TRICKSTER) {
+        if (hasUsedAbility_(room, playerId)) return { ok: false, error: "You've already used your one kill." };
+        if (!target.alive) return { ok: false, error: "Choose a living player to target." };
+        if (targetId === playerId) return { ok: false, error: "The Trickster can't target themselves." };
+      } else if (role === ROLE_RESURRECTOR) {
+        if (hasUsedAbility_(room, playerId)) return { ok: false, error: "You've already used your one revival." };
+        if (target.alive) return { ok: false, error: "Choose a player who is currently dead." };
+      }
+
+      room.game.nightActions[playerId] = {
+        targetId,
+        finalized: role === ROLE_MAFIA ? !!finalized : true,
+      };
     }
-    const target = room.players.find((p) => p.id === targetId);
-    if (!target || !target.alive) return { ok: false, error: "Choose a living player to target." };
 
-    room.game.nightActions[playerId] = { targetId, finalized: !!finalized };
     room.revision += 1;
-
     tryResolveNightIfComplete_(room);
 
     writeRoom_(room);

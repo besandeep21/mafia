@@ -43,7 +43,7 @@ function toPublicRoom_(room) {
     publicRoom.round = room.game.round;
     publicRoom.deadline = room.game.deadline;
     publicRoom.publicHistory = room.game.publicHistory;
-    publicRoom.winner = room.game.winner;
+    publicRoom.winners = room.game.winners;
     if (room.phase === "ROLE_REVEAL") {
       publicRoom.acknowledgedCount = Object.keys(room.game.acknowledged).length;
     }
@@ -67,17 +67,29 @@ function toPublicRoom_(room) {
 function toPrivateProjection_(room, playerId) {
   if (!room.game || !room.game.roles[playerId]) return null;
 
-  const projection = {
-    role: room.game.roles[playerId],
-  };
+  const role = room.game.roles[playerId];
+  const projection = { role };
 
   if (room.phase === "ROLE_REVEAL") {
     projection.acknowledged = !!room.game.acknowledged[playerId];
   }
-  if (room.phase === "NIGHT" && room.game.roles[playerId] === ROLE_MAFIA) {
+
+  const isNightActor = role === ROLE_MAFIA || role === ROLE_DOCTOR || role === ROLE_SEER || role === ROLE_TRICKSTER || role === ROLE_RESURRECTOR;
+  if (room.phase === "NIGHT" && isNightActor) {
     const action = room.game.nightActions[playerId];
-    projection.nightAction = action ? { targetId: action.targetId, finalized: action.finalized } : null;
+    projection.nightAction = action
+      ? { targetId: action.targetId, finalized: action.finalized, skipped: !!action.skipped }
+      : null;
   }
+
+  if (role === ROLE_TRICKSTER || role === ROLE_RESURRECTOR) {
+    projection.abilityUsed = hasUsedAbility_(room, playerId);
+  }
+
+  if (role === ROLE_SEER) {
+    projection.seerResults = room.game.seerResults[playerId] || [];
+  }
+
   if (room.phase === "VOTING") {
     projection.votedFor = room.game.votes[playerId] || null;
   }

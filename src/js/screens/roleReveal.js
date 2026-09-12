@@ -10,6 +10,22 @@ const ROLE_COPY = {
     name: "Villager",
     description: "You have no special ability. Use the day's discussion and your vote to find the Mafia.",
   },
+  DOCTOR: {
+    name: "Doctor",
+    description: "Each night, protect one living player (yourself included) from the Mafia's kill.",
+  },
+  SEER: {
+    name: "Seer",
+    description: "Each night, investigate one living player. You'll privately learn whether they're Mafia.",
+  },
+  TRICKSTER: {
+    name: "Trickster",
+    description: "You're neutral — not Town, not Mafia. You have one kill for the entire game, and you win independently if you're still alive when the game ends.",
+  },
+  RESURRECTOR: {
+    name: "Resurrector",
+    description: "You have one revival for the entire game. Use it to bring an eliminated player back.",
+  },
 };
 
 /**

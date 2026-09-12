@@ -263,3 +263,91 @@ CLAUDE_PROJECT_INSTRUCTIONS.md §21 and the master instructions'
     known phase and only calls `leaveRoom()` for LOBBY/GAME_OVER; during
     an active game it just navigates away, leaving the session token
     valid for whenever that player returns.
+
+## Phase 5
+
+28. **Doctor/Seer/Trickster/Resurrector actions are optional each night;
+    only Mafia's unanimous kill gates early night resolution.** Mafia's
+    kill genuinely requires every living member to coordinate — that's
+    the one thing GAME_RULES.md makes mandatory. The other four roles
+    act independently with no coordination requirement, so waiting on
+    them before the night can resolve would let a slow or undecided
+    Doctor/Seer/Trickster/Resurrector block the whole table indefinitely
+    for no rules-mandated reason. They can still act any time before the
+    night actually resolves (whether that's triggered by Mafia finishing
+    early or by the deadline) — same as before, just not a *requirement*
+    for early resolution.
+
+29. **An explicit "skip" action, not silence, is how an optional role
+    declines to act.** Given item 28's design, there needed to be a way
+    to tell "hasn't decided yet" apart from "deliberately saving the
+    ability" — especially for the Trickster and Resurrector, who might
+    want to hold their one-time ability for a later round. `skip: true`
+    records a real decision (and satisfies "acted this phase" for
+    display purposes) without applying any actual effect at resolution.
+    Mafia can't skip — their action is mandatory, so skip there would be
+    meaningless.
+
+30. **Automatic special-role thresholds, still no host configuration
+    UI**, consistent with item 21's Mafia-count decision: Doctor unlocks
+    at 4 players, Seer at 5, Trickster at 7, Resurrector at 8
+    (`Roles.gs`'s `defaultSpecialRoles_`). Higher-frequency, more
+    foundational roles (Doctor, Seer) unlock before the one-use
+    Trickster and Resurrector, and at least one Villager is always left
+    once assignment is possible, so a game is never *all* special roles.
+
+31. **Ability consumption timing: Trickster/Resurrector are marked
+    "used" at night *resolution*, not at submission.** A player can
+    freely change their target (or switch to skip, or back) any number
+    of times before the night actually resolves — nothing is
+    irreversibly spent by a stray tap. This also means a submitted
+    Resurrector action that later turns out ineligible (target no
+    longer dead by resolution time — vanishingly rare in practice, but
+    possible in principle) still consumes the ability, matching
+    GAME_RULES.md: "If the selected dead player is no longer eligible by
+    resolution time, the action fails" — fails, not retries.
+
+32. **Seer's investigation result is delivered when the night resolves,
+    not immediately at submission.** `ARCHITECTURE.md` §10 lists
+    "Generate private results" as the *final* step of night resolution,
+    after all the kill/protection/revival steps — so this was the more
+    spec-faithful choice over an instant reveal. In practice this means
+    a Seer might submit their investigation and see no result yet if
+    Mafia hasn't finished coordinating; the result appears once the
+    whole night concludes, the same moment everyone else learns who
+    died. `night.js` and the private projection reflect this: an empty
+    `seerResults` array is a normal, expected state mid-night.
+
+33. **`room.game.winner` (singular) became `room.game.winners` (array).**
+    The Trickster's win (GAME_RULES.md: "wins if alive when the game
+    reaches a terminal game-over state") is independent of, and can
+    coexist with, the primary Town/Mafia result — a Trickster who
+    survives to the end wins *regardless* of which side actually won.
+    `evaluateWinner_()` still returns the single primary result (Town or
+    Mafia) exactly as before; `checkWinAndMaybeEnd_()` layers the
+    Trickster check on top and assembles the final array. No backward
+    compatibility with the old field name was preserved — this is
+    pre-release software, and carrying a deprecated field just to avoid
+    a rename would have added confusion for no benefit.
+
+34. **Public night history changed from a single-death `NIGHT_DEATH`/
+    `NO_NIGHT_DEATH` pair to one unified `NIGHT_RESULT` entry with a
+    `deaths` array and an optional `revived` field.** Multiple deaths in
+    one night are now possible (Mafia and Trickster can strike different
+    targets the same night), and a revival is public knowledge the
+    instant it happens (everyone can see a dead player is suddenly alive
+    again, even though *who* revived them stays private) — a single
+    richer event type captures all of this without the frontend needing
+    to reassemble it from several history entries.
+
+35. **This phase's engine work was verified with the same rigor as
+    Phases 3-4, and it found a real bug before it shipped.**
+    `renderSoloTargetPicker` (the shared Doctor/Seer/Trickster/Resurrector
+    UI) returned early when a role's target pool was empty — which
+    happens legitimately for the Resurrector on any night nobody's dead
+    yet — and the skip button's click listener was attached *after* that
+    early return, so it silently never got wired up. A real-browser test
+    using a Resurrector with zero eligible targets caught this (the test
+    hung waiting for the skip button to respond); the fix moved the skip
+    listener out from behind the early return. Caught before reaching
+    the delivered zip, the same way Phase 4's revision-bump bug was.
