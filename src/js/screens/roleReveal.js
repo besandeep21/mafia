@@ -1,4 +1,4 @@
-import { escapeHtml, startCountdown } from "./layout.js";
+import { escapeHtml, startCountdown, showToast, setButtonBusy, clearButtonBusy } from "./layout.js";
 import { acknowledgeRole } from "../state/roomStore.js";
 
 const ROLE_COPY = {
@@ -74,9 +74,12 @@ export function renderRoleReveal(content, state, ctx) {
   const continueButton = content.querySelector('[data-role="continue"]');
   if (!acknowledged) {
     continueButton.addEventListener("click", async () => {
-      continueButton.disabled = true;
-      continueButton.textContent = "Waiting for others…";
-      await acknowledgeRole(ctx.roomCode);
+      setButtonBusy(continueButton, "Waiting for others…");
+      const result = await acknowledgeRole(ctx.roomCode);
+      if (result.error) {
+        showToast(result.error);
+        clearButtonBusy(continueButton);
+      }
     });
   }
 

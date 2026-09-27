@@ -10,7 +10,7 @@ const CONFIG = {
   // Paste the folder ID from your Drive folder's URL here, e.g.
   // https://drive.google.com/drive/folders/XXXXXXXXXXXXXXXX
   //                                          ^^^^^^^^^^^^^^^^ this part
-  DRIVE_ROOT_FOLDER_ID: "PASTE_YOUR_DRIVE_FOLDER_ID_HERE",
+  DRIVE_ROOT_FOLDER_ID: "1T1EH-T3Wy8B539CukUScAahTDtMEZve5",
 };
 
 /**

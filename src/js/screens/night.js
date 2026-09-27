@@ -1,4 +1,4 @@
-import { escapeHtml, startCountdown } from "./layout.js";
+import { escapeHtml, startCountdown, showToast, setButtonBusy, clearButtonBusy } from "./layout.js";
 import { submitNightAction } from "../state/roomStore.js";
 
 const ROLE_COPY = {
@@ -39,7 +39,12 @@ function renderSoloTargetPicker(content, { pool, currentTarget, ownPlayerId, roo
       btn.addEventListener("click", async () => {
         list.querySelectorAll('[data-role="target-option"]').forEach((b) => (b.disabled = true));
         const result = await submitNightAction(roomCode, btn.dataset.playerId, false, false);
-        if (!result.error) onSubmitted(result);
+        if (result.error) {
+          showToast(result.error);
+          list.querySelectorAll('[data-role="target-option"]').forEach((b) => (b.disabled = false));
+        } else {
+          onSubmitted(result);
+        }
       });
     });
   }
@@ -52,7 +57,12 @@ function renderSoloTargetPicker(content, { pool, currentTarget, ownPlayerId, roo
     skipButton.addEventListener("click", async () => {
       skipButton.disabled = true;
       const result = await submitNightAction(roomCode, undefined, false, true);
-      if (!result.error) onSubmitted(result);
+      if (result.error) {
+        showToast(result.error);
+        skipButton.disabled = false;
+      } else {
+        onSubmitted(result);
+      }
     });
   }
 }
@@ -97,7 +107,28 @@ export function renderNight(content, state, ctx) {
     const selections = (mafia && mafia.selections) || {};
     const teammateIds = mafia.teammates.map((t) => t.id);
 
+    // Named, per-teammate breakdown — GAME_RULES.md: Mafia should "see each Mafia
+    // member's current selection," not just an aggregate count of who's picking whom.
+    const teamStatusHtml = `
+      <div class="card" style="margin-bottom:var(--space-base); padding:var(--space-base);">
+        <p class="eyebrow" style="margin-bottom:var(--space-xs);">Your team's decisions</p>
+        ${mafia.teammates
+          .map((t) => {
+            const isSelf = t.id === ctx.ownPlayerId;
+            const selection = selections[t.id];
+            const targetName = selection && selection.targetId ? room.players.find((p) => p.id === selection.targetId)?.name : null;
+            let statusText;
+            if (!selection || !targetName) statusText = "hasn't chosen yet";
+            else if (selection.finalized) statusText = `finalized on ${escapeHtml(targetName)}`;
+            else statusText = `currently leaning ${escapeHtml(targetName)}`;
+            return `<p class="status-text" style="margin:2px 0;">${escapeHtml(t.name)}${isSelf ? " (you)" : ""} — ${statusText}</p>`;
+          })
+          .join("")}
+      </div>
+    `;
+
     actionArea.innerHTML = `
+      ${teamStatusHtml}
       <p class="eyebrow" style="margin-bottom:var(--space-base);">Choose a target — every living Mafia member must agree</p>
       <ul class="player-list" data-role="target-list" style="margin-bottom:var(--space-base);"></ul>
       <button class="btn btn-accent" type="button" data-role="finalize" ${!currentTarget || finalized ? "disabled" : ""}>
@@ -129,17 +160,26 @@ export function renderNight(content, state, ctx) {
         const targetId = btn.dataset.playerId;
         list.querySelectorAll('[data-role="target-option"]').forEach((b) => (b.disabled = true));
         const result = await submitNightAction(ctx.roomCode, targetId, false);
-        if (!result.error) ctx.onStateUpdate(result);
+        if (result.error) {
+          showToast(result.error);
+          list.querySelectorAll('[data-role="target-option"]').forEach((b) => (b.disabled = false));
+        } else {
+          ctx.onStateUpdate(result);
+        }
       });
     });
 
     const finalizeButton = actionArea.querySelector('[data-role="finalize"]');
     if (currentTarget && !finalized) {
       finalizeButton.addEventListener("click", async () => {
-        finalizeButton.disabled = true;
-        finalizeButton.textContent = "Finalizing…";
+        setButtonBusy(finalizeButton, "Finalizing…");
         const result = await submitNightAction(ctx.roomCode, currentTarget, true);
-        if (!result.error) ctx.onStateUpdate(result);
+        if (result.error) {
+          showToast(result.error);
+          clearButtonBusy(finalizeButton);
+        } else {
+          ctx.onStateUpdate(result);
+        }
       });
     }
   } else if (role === "DOCTOR" || role === "SEER" || role === "TRICKSTER" || role === "RESURRECTOR") {

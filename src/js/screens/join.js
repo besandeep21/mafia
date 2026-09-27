@@ -1,4 +1,4 @@
-import { renderShell } from "./layout.js";
+import { renderShell, setButtonBusy, clearButtonBusy, STATE_ICONS } from "./layout.js";
 import { joinRoom } from "../state/roomStore.js";
 import { normalizeRoomCodeInput, isCompleteRoomCode } from "../utils/roomCode.js";
 import { getStoredPlayerName, setStoredPlayerName, setLastRoomCode } from "../services/identityService.js";
@@ -20,7 +20,8 @@ export function renderJoin(root, navigate, params = {}) {
         ${
           isBackendConfigured()
             ? ""
-            : `<div class="card" style="border-color:var(--color-critical-strong);">
+            : `<div class="card" style="border-color:var(--color-critical-strong); display:flex; gap:var(--space-base); align-items:flex-start;">
+                <span style="color:var(--color-critical-strong); flex-shrink:0;">${STATE_ICONS.warning}</span>
                 <p class="field-error" style="margin:0;">The game backend isn't configured yet. See apps-script/README.md to deploy it, then set API_BASE_URL in src/js/config.js.</p>
               </div>`
         }
@@ -90,8 +91,7 @@ export function renderJoin(root, navigate, params = {}) {
       return;
     }
 
-    submitButton.disabled = true;
-    submitButton.textContent = "Joining…";
+    setButtonBusy(submitButton, "Joining…");
 
     const result = await joinRoom(code, name);
 
@@ -100,8 +100,7 @@ export function renderJoin(root, navigate, params = {}) {
       joinError.textContent = result.error;
       joinError.classList.remove("visually-hidden");
       codeInput.focus();
-      submitButton.disabled = false;
-      submitButton.textContent = "Join room";
+      clearButtonBusy(submitButton);
       return;
     }
 

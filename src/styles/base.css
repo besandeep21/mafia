@@ -112,3 +112,29 @@ img {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/*
+  Phase 10: a static placeholder shown by index.html before app.js has
+  parsed and drawn the first screen — otherwise a slow phone/connection
+  (loading Montserrat + the JS module graph) shows a blank white flash
+  first, which reads as broken rather than "loading." app.js removes this
+  the moment renderRoute() completes its first paint, whether that first
+  paint is instant or not; it is never tied to network requests, so it
+  can't get stuck.
+*/
+#boot-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-canvas);
+  color: var(--color-steel);
+  transition: opacity var(--motion-base) var(--motion-easing);
+}
+
+#boot-loader.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}

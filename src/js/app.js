@@ -2,9 +2,23 @@ import { renderLanding } from "./screens/landing.js";
 import { renderCreate } from "./screens/create.js";
 import { renderJoin } from "./screens/join.js";
 import { renderLobby } from "./screens/lobby.js";
+import { initOfflineIndicator, initUpdatePrompt, initReconnectIndicator } from "./screens/layout.js";
 
 const root = document.getElementById("app");
 let currentCleanup = null;
+
+/**
+ * Phase 10: index.html shows a static #boot-loader (spinner) so a slow
+ * phone/connection never shows a blank white flash while fonts/JS load.
+ * Removed the moment the very first route has painted — not tied to any
+ * network request, so it can never get stuck open.
+ */
+function hideBootLoader() {
+  const el = document.getElementById("boot-loader");
+  if (!el) return;
+  el.classList.add("is-hidden");
+  setTimeout(() => el.remove(), 260);
+}
 
 /**
  * Parses a hash like "#/join?code=123456" into { path: "/join", params: { code: "123456" } }.
@@ -41,6 +55,7 @@ function renderRoute() {
   const { path, params } = parseHash();
   const screen = routes[path] || routes["/"];
   currentCleanup = screen(root, navigate, params) || null;
+  hideBootLoader();
 }
 
 window.addEventListener("hashchange", renderRoute);
@@ -59,3 +74,7 @@ if ("serviceWorker" in navigator) {
     });
   });
 }
+
+initOfflineIndicator();
+initReconnectIndicator();
+initUpdatePrompt();

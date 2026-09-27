@@ -180,7 +180,10 @@
 }
 
 .field-error {
-  color: var(--color-critical-strong);
+  /* Phase 10 a11y fix: critical-strong text measured ~4.1:1 on canvas —
+     just under the 4.5:1 threshold for this size. --color-critical-text is
+     a themed variant tuned per-mode; see tokens.css. */
+  color: var(--color-critical-text);
   font-size: var(--type-body-sm-size);
 }
 
@@ -207,15 +210,42 @@
   padding: 4px 10px;
   font-size: var(--type-caption-size);
   font-weight: var(--type-caption-bold-weight);
+  /* Phase 10: every badge gets a small entrance pop the moment it's inserted
+     — "Ready", "Out", role labels, pick counts. Purely decorative, so it's
+     covered by the global prefers-reduced-motion override in base.css. */
+  animation: badge-pop var(--motion-fast) var(--motion-easing);
+}
+
+@keyframes badge-pop {
+  from { opacity: 0; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 .badge-success {
-  background: var(--color-success);
+  /* Phase 10 a11y fix: white-on-{colors.success} measured ~3.3:1 (fails the
+     4.5:1 text threshold at this size). --color-success-strong is a
+     darkened success green kept white-on-top; see tokens.css. */
+  background: var(--color-success-strong);
   color: var(--color-canvas);
 }
 
 .badge-attention {
+  /* Phase 10 a11y fix: white-on-{colors.attention} measured ~2.0:1 — a hard
+     fail. Swapping the text to ink-deep (dark-on-amber) mirrors DESIGN.md's
+     own badge-promo-yellow pairing and clears contrast comfortably. */
   background: var(--color-attention);
+  color: var(--color-ink-deep);
+}
+
+/* Phase 10 bug fix: gameOver.js/night.js/day.js all reference "badge-critical"
+   (dead/"Out" status, the Mafia role reveal), but no such class previously
+   existed in this file — every one of those badges was rendering as
+   unstyled plain text instead of a pill. Found via the Phase 10 render
+   smoke test (see DECISIONS.md). White-on-critical measures ~4.6:1,
+   already clearing the same 4.5:1 threshold the two fixes above needed
+   new tokens for, so the existing --color-critical token is used as-is. */
+.badge-critical {
+  background: var(--color-critical);
   color: var(--color-canvas);
 }
 
@@ -309,6 +339,16 @@
   border-radius: var(--radius-xxxl);
   background: var(--color-ink-deep);
   color: var(--color-canvas);
+  /* Phase 10: a single, one-off reveal moment when a player first sees
+     their role — never repeats (the element isn't re-created on later
+     re-renders of the same phase since role reveal only draws once per
+     phase entry), so --motion-slow's longer duration doesn't get old. */
+  animation: role-card-in var(--motion-slow) var(--motion-easing);
+}
+
+@keyframes role-card-in {
+  from { opacity: 0; transform: scale(0.92) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 .role-card__label {
@@ -337,6 +377,20 @@
   font-weight: 700;
   font-size: var(--type-heading-sm-size);
   color: var(--color-ink-deep);
+  transition: color var(--motion-fast) var(--motion-easing);
+}
+
+/* Applied by startCountdown() (layout.js) once ≤10s remain — a visual
+   deadline cue. Screen-reader users get an equivalent one-time
+   announce() call rather than relying on this color change. */
+.timer-badge--critical {
+  color: var(--color-critical-strong);
+  animation: timer-pulse 1s var(--motion-easing) infinite;
+}
+
+@keyframes timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 
 /* Vote / night history breakdown */
@@ -401,6 +455,151 @@
   color: var(--color-steel);
 }
 
+/* ---------- Spinner ---------- */
+
+.spinner {
+  display: inline-block;
+  border-radius: var(--radius-circle);
+  border: 2.5px solid currentColor;
+  border-top-color: transparent;
+  opacity: 0.85;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.spinner-sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.spinner-md {
+  width: 24px;
+  height: 24px;
+}
+
+.spinner-lg {
+  width: 36px;
+  height: 36px;
+  border-width: 3px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A spinner sitting inside a dark pill button (btn-primary/btn-accent)
+   inherits `currentColor`, which is already on-primary/on-ink-button —
+   no extra color rule needed. Buttons put the spinner and label in their
+   own inline-flex wrapper via setButtonBusy() in layout.js. */
+.btn .spinner {
+  margin-right: var(--space-xs);
+}
+
+/* ---------- Loading / empty / error states ----------
+   Shared full-area placeholder used whenever a screen has nothing
+   substantive to show yet (first load), has lost its subject (room
+   deleted/ended), or hit a setup problem (backend not configured). Same
+   layout for all three so a player never has to parse a new visual
+   pattern mid-game — only the icon + copy + optional action change. */
+
+.state-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-base);
+  text-align: center;
+  padding: var(--space-xl) 0;
+}
+
+.state-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-circle);
+  background: var(--color-surface-soft);
+  color: var(--color-steel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.state-icon--error {
+  background: color-mix(in srgb, var(--color-critical) 12%, var(--color-surface-soft));
+  color: var(--color-critical-strong);
+}
+
+.state-block__title {
+  font-size: var(--type-heading-sm-size);
+  font-weight: var(--type-heading-sm-weight);
+  line-height: var(--type-heading-sm-leading);
+}
+
+.state-block__message {
+  color: var(--color-steel);
+  font-size: var(--type-body-sm-size);
+  max-width: 32ch;
+}
+
+/* ---------- Entrance stagger ----------
+   Applied to one-off list reveals (lobby roster filling in, the final
+   role list on game over) — NOT to lists that redraw on every poll tick
+   (night/day/voting status lists), where replaying an entrance on every
+   silent refresh would feel like flicker rather than polish. Callers set
+   `style.animationDelay` per item (see lobby.js/gameOver.js) so the
+   stagger works for any list length without per-index CSS rules. */
+
+.list-anim-in {
+  animation: list-item-in var(--motion-base) var(--motion-easing) backwards;
+}
+
+@keyframes list-item-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Game-over winner banner — a single reveal moment, slightly slower/larger
+   than the standard screen transition since it's the payoff of the whole
+   game. */
+.gameover-banner {
+  animation: gameover-in var(--motion-slow) var(--motion-easing);
+}
+
+@keyframes gameover-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* ---------- Reconnect banner ----------
+   Distinct from .offline-banner: this shows when the browser still
+   believes it's online but this device's polling has failed several
+   times in a row (Apps Script momentarily busy, a flaky connection that
+   doesn't trip navigator.onLine, etc.) — see roomStore.js's
+   subscribeConnectionStatus(). The two never show at once: showing this
+   checks navigator.onLine itself, and it's hidden immediately on the
+   browser's own "offline" event. */
+.reconnect-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-base);
+  padding-top: calc(var(--space-sm) + var(--safe-top));
+  background: var(--color-surface-soft);
+  color: var(--color-steel);
+  font-size: var(--type-body-sm-size);
+  font-weight: var(--type-body-sm-bold-weight);
+  text-align: center;
+  border-bottom: 1px solid var(--color-hairline-soft);
+}
+
 /* ---------- Toast (for mock action feedback) ---------- */
 
 .toast {
@@ -424,4 +623,60 @@
 
 .toast.is-visible {
   opacity: 1;
+}
+
+/* Offline indicator — a persistent top banner while navigator.onLine is false */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  padding: var(--space-sm) var(--space-base);
+  padding-top: calc(var(--space-sm) + var(--safe-top));
+  background: var(--color-warning);
+  color: var(--color-ink-deep);
+  font-size: var(--type-body-sm-size);
+  font-weight: var(--type-body-sm-bold-weight);
+  text-align: center;
+}
+
+/* Update-available toast — non-forcing, dismissible */
+.update-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-xl) + var(--safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-base);
+  z-index: 55;
+  background: var(--color-ink-deep);
+  color: var(--color-canvas);
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-sticky-panel);
+  font-size: var(--type-body-sm-size);
+  max-width: calc(100% - var(--space-xl) * 2);
+}
+
+.update-toast [data-role="reload"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 6px 16px;
+  font-size: var(--type-body-sm-bold-weight);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.update-toast [data-role="dismiss"] {
+  background: transparent;
+  border: none;
+  color: var(--color-stone);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 var(--space-xs);
+  flex-shrink: 0;
 }

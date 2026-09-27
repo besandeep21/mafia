@@ -1,4 +1,4 @@
-import { escapeHtml, startCountdown } from "./layout.js";
+import { escapeHtml, startCountdown, showToast } from "./layout.js";
 import { submitVote } from "../state/roomStore.js";
 
 /**
@@ -59,7 +59,12 @@ export function renderVoting(content, state, ctx) {
         const targetId = btn.dataset.playerId;
         list.querySelectorAll('[data-role="vote-option"]').forEach((b) => (b.disabled = true));
         const result = await submitVote(ctx.roomCode, targetId);
-        if (!result.error) ctx.onStateUpdate(result);
+        if (result.error) {
+          showToast(result.error);
+          list.querySelectorAll('[data-role="vote-option"]').forEach((b) => (b.disabled = false));
+        } else {
+          ctx.onStateUpdate(result);
+        }
       });
     });
   }

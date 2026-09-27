@@ -22,6 +22,23 @@
   --color-critical: #e41e3f;
   --color-critical-strong: #f0284a;
 
+  /*
+    Phase 10 accessibility pass: DESIGN.md's own badge-success/badge-attention
+    pairings (white text on {colors.success}/{colors.attention}) measure at
+    roughly 3.3:1 and 2.0:1 against white respectively — both fail WCAG AA's
+    4.5:1 text-contrast threshold at the 12px badge size used here. These two
+    tokens exist purely to fix that without touching the brand colors
+    themselves: --color-success-strong is a darkened success green used only
+    as the badge-success background (>5:1 with white text); --color-critical-text
+    is a darkened critical red used only for small error copy (field-error,
+    inline network errors), which measured ~4.1:1 against canvas. See
+    DECISIONS.md Phase 10 for the full audit. badge-attention itself is fixed
+    by swapping its text color to ink-deep (see components.css) rather than a
+    new token, mirroring DESIGN.md's own badge-promo-yellow pairing.
+  */
+  --color-success-strong: #1f7a37;
+  --color-critical-text: #c31c40;
+
   --color-canvas: #ffffff;
   --color-surface-soft: #f1f4f7;
   --color-ink-deep: #0a1317;
@@ -124,6 +141,7 @@
   /* ---- Motion ---- */
   --motion-fast: 160ms;
   --motion-base: 220ms;
+  --motion-slow: 420ms; /* one-off reveals: role card, game-over banner — never used for repeating/looping motion */
   --motion-easing: cubic-bezier(0.2, 0.7, 0.3, 1);
 
   /* ---- Safe areas ---- */
@@ -155,5 +173,15 @@
 
     --color-ink-button: #f5f7f8;
     --color-on-ink-button: #0a1317;
+
+    /*
+      --color-critical-text was tuned for a WHITE canvas (~5.9:1). Reused
+      unchanged here it would sit at ~3:1 on the dark canvas — worse than
+      the token it was meant to replace. Swap to a lighter coral that still
+      reads as "the critical color" but clears 4.5:1 on --color-canvas's
+      dark value (~5.7:1). --color-success-strong's ~5.4:1 margin already
+      has enough headroom to leave unchanged in both themes.
+    */
+    --color-critical-text: #ff5470;
   }
 }

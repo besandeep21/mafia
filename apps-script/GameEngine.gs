@@ -53,10 +53,12 @@ function resolvePendingTimeouts_(room) {
       case "DAY":
         room.phase = "DISCUSSION";
         room.game.deadline = nowMs_() + PHASE_DURATIONS_MS.DISCUSSION;
+        recordAudit_(room, "phaseTimeout", null, "DAY→DISCUSSION (forced)");
         break;
       case "DISCUSSION":
         room.phase = "VOTING";
         room.game.deadline = nowMs_() + PHASE_DURATIONS_MS.VOTING;
+        recordAudit_(room, "phaseTimeout", null, "DISCUSSION→VOTING (forced)");
         break;
       case "VOTING":
         resolveVote_(room); // forced: unsubmitted votes are abstentions
@@ -76,6 +78,7 @@ function startNightPhase_(room) {
   room.game.deadline = nowMs_() + PHASE_DURATIONS_MS.NIGHT;
   room.game.nightActions = {};
   room.game.votes = {};
+  recordAudit_(room, "nightStarted", null, "round " + room.game.round);
 }
 
 /**
@@ -97,6 +100,7 @@ function checkWinAndMaybeEnd_(room) {
   room.game.winners = winners;
   room.game.deadline = null;
   room.game.publicHistory.push({ round: room.game.round, type: "GAME_OVER", winners });
+  recordAudit_(room, "gameOver", null, "winners: " + winners.join(","));
   return true;
 }
 
@@ -191,6 +195,12 @@ function resolveNight_(room) {
     deaths,
     revived: revivedId,
   });
+  recordAudit_(
+    room,
+    "nightResolved",
+    null,
+    "round " + room.game.round + " deaths:[" + deaths.join(",") + "] revived:" + (revivedId || "none")
+  );
 
   if (checkWinAndMaybeEnd_(room)) return;
 
@@ -242,6 +252,12 @@ function resolveVote_(room) {
     eliminatedId,
     tie: maxVotes > 0 && topCandidates.length > 1,
   });
+  recordAudit_(
+    room,
+    "voteResolved",
+    null,
+    "round " + room.game.round + " eliminated:" + (eliminatedId || "none (tie or no votes)")
+  );
 
   if (checkWinAndMaybeEnd_(room)) return;
 
@@ -259,14 +275,22 @@ function tryResolveVoteIfComplete_(room) {
 function startGameRecord_(roomCode, callerPlayerId, callerSessionToken) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
-    if (room.phase !== "LOBBY") return { ok: false, error: "The game has already started." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
+    if (room.phase !== "LOBBY") {
+      return { ok: false, error: "The game has already started.", code: ERR.GAME_ALREADY_STARTED };
+    }
 
     const caller = findAuthedPlayer_(room, callerPlayerId, callerSessionToken);
-    if (!caller) return { ok: false, error: "Your session for this room is no longer valid." };
-    if (room.hostPlayerId !== callerPlayerId) return { ok: false, error: "Only the host can start the game." };
+    if (!caller) return { ok: false, error: "Your session for this room is no longer valid.", code: ERR.SESSION_INVALID };
+    if (room.hostPlayerId !== callerPlayerId) {
+      return { ok: false, error: "Only the host can start the game.", code: ERR.NOT_HOST };
+    }
     if (room.players.length < MIN_PLAYERS_TO_START) {
-      return { ok: false, error: `Need at least ${MIN_PLAYERS_TO_START} players to start.` };
+      return {
+        ok: false,
+        error: `Need at least ${MIN_PLAYERS_TO_START} players to start.`,
+        code: ERR.NOT_ENOUGH_PLAYERS,
+      };
     }
 
     room.game = {
@@ -283,6 +307,7 @@ function startGameRecord_(roomCode, callerPlayerId, callerSessionToken) {
     };
     room.phase = "ROLE_REVEAL";
     room.revision += 1;
+    recordAudit_(room, "startGame", callerPlayerId, room.players.length + " players");
 
     writeRoom_(room);
     return projectionResult_(room, callerPlayerId);
@@ -293,10 +318,10 @@ function startGameRecord_(roomCode, callerPlayerId, callerSessionToken) {
 function acknowledgeRoleRecord_(roomCode, playerId, sessionToken) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
 
     const player = findAuthedPlayer_(room, playerId, sessionToken);
-    if (!player) return { ok: false, error: "Your session for this room is no longer valid." };
+    if (!player) return { ok: false, error: "Your session for this room is no longer valid.", code: ERR.SESSION_INVALID };
 
     resolvePendingTimeouts_(room);
     if (room.phase !== "ROLE_REVEAL") {
@@ -306,6 +331,7 @@ function acknowledgeRoleRecord_(roomCode, playerId, sessionToken) {
 
     room.game.acknowledged[playerId] = true;
     room.revision += 1;
+    recordAudit_(room, "acknowledgeRole", playerId, "acknowledged");
 
     const living = livingPlayerIds_(room);
     if (living.every((id) => room.game.acknowledged[id])) {
@@ -332,40 +358,62 @@ function acknowledgeRoleRecord_(roomCode, playerId, sessionToken) {
 function submitNightActionRecord_(roomCode, playerId, sessionToken, targetId, finalized, skip) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
 
     const player = findAuthedPlayer_(room, playerId, sessionToken);
-    if (!player) return { ok: false, error: "Your session for this room is no longer valid." };
+    if (!player) return { ok: false, error: "Your session for this room is no longer valid.", code: ERR.SESSION_INVALID };
 
     resolvePendingTimeouts_(room);
     if (room.phase !== "NIGHT") {
       writeRoom_(room);
-      return { ok: false, error: "It's not the night phase right now." };
+      return { ok: false, error: "It's not the night phase right now.", code: ERR.WRONG_PHASE };
     }
-    if (!player.alive) return { ok: false, error: "Dead players can't act." };
+    if (!player.alive) return { ok: false, error: "Dead players can't act.", code: ERR.DEAD_PLAYER };
 
     const role = room.game.roles[playerId];
-    if (role === ROLE_VILLAGER) return { ok: false, error: "You have no night action." };
+    if (role === ROLE_VILLAGER) return { ok: false, error: "You have no night action.", code: ERR.NO_ACTION };
 
     if (skip) {
-      if (role === ROLE_MAFIA) return { ok: false, error: "The Mafia kill needs a target, not a skip." };
+      if (role === ROLE_MAFIA) {
+        return { ok: false, error: "The Mafia kill needs a target, not a skip.", code: ERR.INVALID_TARGET };
+      }
       if ((role === ROLE_TRICKSTER || role === ROLE_RESURRECTOR) && hasUsedAbility_(room, playerId)) {
-        return { ok: false, error: "You've already used that ability." };
+        return { ok: false, error: "You've already used that ability.", code: ERR.ABILITY_USED };
       }
       room.game.nightActions[playerId] = { targetId: null, finalized: true, skipped: true };
     } else {
       const target = room.players.find((p) => p.id === targetId);
-      if (!target) return { ok: false, error: "Choose a player to target." };
+      if (!target) return { ok: false, error: "Choose a player to target.", code: ERR.INVALID_TARGET };
 
-      if (role === ROLE_MAFIA || role === ROLE_DOCTOR || role === ROLE_SEER) {
-        if (!target.alive) return { ok: false, error: "Choose a living player to target." };
+      if (role === ROLE_MAFIA) {
+        if (!target.alive) return { ok: false, error: "Choose a living player to target.", code: ERR.INVALID_TARGET };
+        const existing = room.game.nightActions[playerId];
+        if (existing && existing.finalized && existing.targetId !== targetId) {
+          return {
+            ok: false,
+            error: "Your selection is already finalized and can't be changed.",
+            code: ERR.ALREADY_FINALIZED,
+          };
+        }
+        // A duplicate submission of the SAME already-finalized target (e.g. a
+        // network-level retry re-sending the same request) is a harmless no-op,
+        // not a rejection -- only an attempt to change to a DIFFERENT target
+        // after finalizing is actually invalid.
+      } else if (role === ROLE_DOCTOR || role === ROLE_SEER) {
+        if (!target.alive) return { ok: false, error: "Choose a living player to target.", code: ERR.INVALID_TARGET };
       } else if (role === ROLE_TRICKSTER) {
-        if (hasUsedAbility_(room, playerId)) return { ok: false, error: "You've already used your one kill." };
-        if (!target.alive) return { ok: false, error: "Choose a living player to target." };
-        if (targetId === playerId) return { ok: false, error: "The Trickster can't target themselves." };
+        if (hasUsedAbility_(room, playerId)) {
+          return { ok: false, error: "You've already used your one kill.", code: ERR.ABILITY_USED };
+        }
+        if (!target.alive) return { ok: false, error: "Choose a living player to target.", code: ERR.INVALID_TARGET };
+        if (targetId === playerId) {
+          return { ok: false, error: "The Trickster can't target themselves.", code: ERR.SELF_TARGET_FORBIDDEN };
+        }
       } else if (role === ROLE_RESURRECTOR) {
-        if (hasUsedAbility_(room, playerId)) return { ok: false, error: "You've already used your one revival." };
-        if (target.alive) return { ok: false, error: "Choose a player who is currently dead." };
+        if (hasUsedAbility_(room, playerId)) {
+          return { ok: false, error: "You've already used your one revival.", code: ERR.ABILITY_USED };
+        }
+        if (target.alive) return { ok: false, error: "Choose a player who is currently dead.", code: ERR.INVALID_TARGET };
       }
 
       room.game.nightActions[playerId] = {
@@ -375,6 +423,12 @@ function submitNightActionRecord_(roomCode, playerId, sessionToken, targetId, fi
     }
 
     room.revision += 1;
+    recordAudit_(
+      room,
+      "submitNightAction",
+      playerId,
+      role + (skip ? " skip" : " target") + (room.game.nightActions[playerId].finalized ? " finalized" : "")
+    );
     tryResolveNightIfComplete_(room);
 
     writeRoom_(room);
@@ -386,22 +440,25 @@ function submitNightActionRecord_(roomCode, playerId, sessionToken, targetId, fi
 function submitVoteRecord_(roomCode, playerId, sessionToken, targetId) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
 
     const player = findAuthedPlayer_(room, playerId, sessionToken);
-    if (!player) return { ok: false, error: "Your session for this room is no longer valid." };
+    if (!player) return { ok: false, error: "Your session for this room is no longer valid.", code: ERR.SESSION_INVALID };
 
     resolvePendingTimeouts_(room);
     if (room.phase !== "VOTING") {
       writeRoom_(room);
-      return { ok: false, error: "It's not the voting phase right now." };
+      return { ok: false, error: "It's not the voting phase right now.", code: ERR.WRONG_PHASE };
     }
-    if (!player.alive) return { ok: false, error: "Dead players can't vote." };
+    if (!player.alive) return { ok: false, error: "Dead players can't vote.", code: ERR.DEAD_PLAYER };
     const target = room.players.find((p) => p.id === targetId);
-    if (!target || !target.alive) return { ok: false, error: "Choose a living player to vote for." };
+    if (!target || !target.alive) {
+      return { ok: false, error: "Choose a living player to vote for.", code: ERR.INVALID_TARGET };
+    }
 
     room.game.votes[playerId] = targetId;
     room.revision += 1;
+    recordAudit_(room, "submitVote", playerId, "voted");
 
     tryResolveVoteIfComplete_(room);
 

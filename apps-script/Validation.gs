@@ -33,10 +33,10 @@ function isValidUuidLike_(value) {
  */
 function validateCreateRoomPayload_(payload) {
   if (!payload || typeof payload !== "object") {
-    return { error: "Invalid request." };
+    return { error: "Invalid request.", code: ERR.INVALID_INPUT };
   }
   const hostName = sanitizeText_(payload.hostName, MAX_PLAYER_NAME_LENGTH);
-  if (!hostName) return { error: "A player name is required." };
+  if (!hostName) return { error: "A player name is required.", code: ERR.INVALID_INPUT };
 
   const roomName = sanitizeText_(payload.roomName, MAX_ROOM_NAME_LENGTH) || "Untitled Room";
   const result = { roomName, hostName };
@@ -48,13 +48,13 @@ function validateCreateRoomPayload_(payload) {
 
 function validateJoinRoomPayload_(payload) {
   if (!payload || typeof payload !== "object") {
-    return { error: "Invalid request." };
+    return { error: "Invalid request.", code: ERR.INVALID_INPUT };
   }
   if (!isValidRoomCode_(payload.roomCode)) {
-    return { error: "Room code must be 6 digits." };
+    return { error: "Room code must be 6 digits.", code: ERR.INVALID_INPUT };
   }
   const playerName = sanitizeText_(payload.playerName, MAX_PLAYER_NAME_LENGTH);
-  if (!playerName) return { error: "A player name is required." };
+  if (!playerName) return { error: "A player name is required.", code: ERR.INVALID_INPUT };
 
   const result = { roomCode: payload.roomCode, playerName };
 
@@ -74,13 +74,13 @@ function validateJoinRoomPayload_(payload) {
 
 function validateAuthedPayload_(payload) {
   if (!payload || typeof payload !== "object") {
-    return { error: "Invalid request." };
+    return { error: "Invalid request.", code: ERR.INVALID_INPUT };
   }
   if (!isValidRoomCode_(payload.roomCode)) {
-    return { error: "Room code must be 6 digits." };
+    return { error: "Room code must be 6 digits.", code: ERR.INVALID_INPUT };
   }
   if (!isValidUuidLike_(payload.playerId) || !isValidUuidLike_(payload.sessionToken)) {
-    return { error: "Missing or invalid session." };
+    return { error: "Missing or invalid session.", code: ERR.SESSION_INVALID };
   }
   return { roomCode: payload.roomCode, playerId: payload.playerId, sessionToken: payload.sessionToken };
 }
@@ -90,7 +90,7 @@ function validateTargetedActionPayload_(payload) {
   const base = validateAuthedPayload_(payload);
   if (base.error) return base;
   if (!isValidUuidLike_(payload.targetPlayerId)) {
-    return { error: "Choose a player to target." };
+    return { error: "Choose a player to target.", code: ERR.INVALID_TARGET };
   }
   base.targetPlayerId = payload.targetPlayerId;
   return base;
@@ -110,7 +110,7 @@ function validateNightActionPayload_(payload) {
     return base;
   }
   if (!isValidUuidLike_(payload.targetPlayerId)) {
-    return { error: "Choose a player to target, or skip." };
+    return { error: "Choose a player to target, or skip.", code: ERR.INVALID_TARGET };
   }
   base.targetPlayerId = payload.targetPlayerId;
   base.finalized = !!payload.finalized;

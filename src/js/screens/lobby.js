@@ -1,4 +1,4 @@
-import { renderShell, showToast, escapeHtml } from "./layout.js";
+import { renderShell, showToast, escapeHtml, renderLoadingState, renderStatePlaceholder, setButtonBusy, clearButtonBusy, announce } from "./layout.js";
 import { getRoomState, subscribeRoom, setOwnReady, leaveRoom, startGame } from "../state/roomStore.js";
 import { getOrCreatePlayerId } from "../services/identityService.js";
 import { buildJoinUrl, shareJoinLink } from "../services/shareService.js";
@@ -36,19 +36,19 @@ export function renderLobby(root, navigate, params = {}) {
 
   if (!isBackendConfigured()) {
     const content = renderShell(root, { title: "Lobby", showBack: true, onBack: () => navigate("/") });
-    content.innerHTML = `
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-base); text-align:center;">
-        <p class="section-title">Backend not configured</p>
-        <p class="status-text">See apps-script/README.md to deploy the backend, then set API_BASE_URL in src/js/config.js.</p>
-        <button class="btn btn-primary" type="button" data-role="home" style="width:auto; padding-left:24px; padding-right:24px;">Back home</button>
-      </div>
-    `;
-    content.querySelector('[data-role="home"]').addEventListener("click", () => navigate("/"));
+    renderStatePlaceholder(content, {
+      icon: "warning",
+      title: "Backend not configured",
+      message: "See apps-script/README.md to deploy the backend, then set API_BASE_URL in src/js/config.js.",
+      actionLabel: "Back home",
+      onAction: () => navigate("/"),
+    });
     return;
   }
 
   const ownPlayerId = getOrCreatePlayerId();
   let latestPhase = null;
+  let lastAnnouncedPhase = null;
   let phaseCleanup = null;
 
   function onBack() {
@@ -83,6 +83,14 @@ export function renderLobby(root, navigate, params = {}) {
     }
 
     latestPhase = room.phase;
+
+    // Phase 10: announce phase changes for screen reader users — renderShell()
+    // replaces the whole DOM tree on every update rather than patching it, so
+    // there's nothing else for a screen reader to notice a phase change from.
+    if (room.phase !== lastAnnouncedPhase) {
+      lastAnnouncedPhase = room.phase;
+      announce(`${PHASE_TITLES[room.phase] || room.phase} phase`);
+    }
 
     const ownPlayer = room.players.find((p) => p.id === ownPlayerId);
     if (!ownPlayer && room.phase !== "GAME_OVER") {
@@ -122,18 +130,29 @@ export function renderLobby(root, navigate, params = {}) {
   }
 
   function drawUnavailable(content) {
-    content.innerHTML = `
-      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-base); text-align:center;">
-        <p class="section-title">This room isn't available</p>
-        <p class="status-text">It may have ended, or the code was mistyped.</p>
-        <button class="btn btn-primary" type="button" data-role="home" style="width:auto; padding-left:24px; padding-right:24px;">Back home</button>
-      </div>
-    `;
-    content.querySelector('[data-role="home"]').addEventListener("click", () => navigate("/"));
+    renderStatePlaceholder(content, {
+      icon: "info",
+      title: "This room isn't available",
+      message: "It may have ended, or the code was mistyped.",
+      actionLabel: "Back home",
+      onAction: () => navigate("/"),
+    });
   }
 
   drawLoading(root);
-  getRoomState(code).then((state) => draw(state || { room: null, private: null, mafia: null }));
+  // First paint, ahead of subscribeRoom's own poll cadence (see roomStore.js),
+  // so the player isn't staring at "Loading room…" for up to 4 seconds. If
+  // this first request fails, only a confirmed ROOM_NOT_FOUND should show the
+  // "not available" screen — any other failure (a network blip, the server
+  // being briefly busy) should just leave the loading placeholder up; the
+  // poll that's about to start will draw the real state the moment it lands.
+  getRoomState(code)
+    .then((state) => draw(state))
+    .catch((err) => {
+      if (err && err.code === "ROOM_NOT_FOUND") {
+        draw({ room: null, private: null, mafia: null });
+      }
+    });
   const unsubscribe = subscribeRoom(code, draw);
 
   return () => {
@@ -144,11 +163,7 @@ export function renderLobby(root, navigate, params = {}) {
 
 function drawLoading(root) {
   const content = renderShell(root, { title: "Lobby", showBack: false });
-  content.innerHTML = `
-    <div style="flex:1; display:flex; align-items:center; justify-content:center;">
-      <p class="status-text">Loading room…</p>
-    </div>
-  `;
+  renderLoadingState(content, "Loading room…");
 }
 
 function drawLobbyView(content, state, ctx) {
@@ -193,10 +208,11 @@ function drawLobbyView(content, state, ctx) {
   `;
 
   const list = content.querySelector('[data-role="player-list"]');
-  list.innerHTML = room.players
-    .map(
-      (p) => `
-    <li class="player-row ${p.isHost ? "player-row--host" : ""}">
+  list.innerHTML = room.players.length
+    ? room.players
+        .map(
+          (p, i) => `
+    <li class="player-row list-anim-in ${p.isHost ? "player-row--host" : ""}" style="animation-delay:${i * 40}ms">
       <span class="player-row__name">
         <span class="player-avatar">${escapeHtml(p.name.slice(0, 1).toUpperCase())}</span>
         ${escapeHtml(p.name)}${p.id === ctx.ownPlayerId ? " (you)" : ""}
@@ -208,27 +224,30 @@ function drawLobbyView(content, state, ctx) {
       }
     </li>
   `
-    )
-    .join("");
+        )
+        .join("")
+    : `<li class="status-text" style="padding:var(--space-base) 0;">Waiting for players to join…</li>`;
 
   const readyButton = content.querySelector('[data-role="ready"]');
   readyButton.addEventListener("click", async () => {
-    readyButton.disabled = true;
-    const updated = await setOwnReady(ctx.roomCode, !ownPlayer.ready);
-    if (updated) ctx.onStateUpdate({ room: updated, private: null, mafia: null });
-    else readyButton.disabled = false;
+    setButtonBusy(readyButton, "Updating…");
+    const result = await setOwnReady(ctx.roomCode, !ownPlayer.ready);
+    if (result.room) {
+      ctx.onStateUpdate({ room: result.room, private: null, mafia: null });
+    } else {
+      showToast(result.error || "Couldn't update ready status.");
+      clearButtonBusy(readyButton);
+    }
   });
 
   const startButton = content.querySelector('[data-role="start"]');
   if (startButton) {
     startButton.addEventListener("click", async () => {
-      startButton.disabled = true;
-      startButton.textContent = "Starting…";
+      setButtonBusy(startButton, "Starting…");
       const result = await startGame(ctx.roomCode);
       if (result.error) {
         showToast(result.error);
-        startButton.disabled = false;
-        startButton.textContent = "Start game";
+        clearButtonBusy(startButton);
         return;
       }
       ctx.onStateUpdate(result);

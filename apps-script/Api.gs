@@ -2,31 +2,36 @@
  * Api.gs — one function per action, each responsible for validating
  * its own input (Validation.gs) before touching Rooms.gs. Code.gs's
  * doGet/doPost only route to these; no business logic lives there.
+ *
+ * Phase 9: every `errorResponse_` call below now forwards the `code`
+ * that Validation.gs/Rooms.gs/GameEngine.gs already attached to the
+ * rejection, so the structured code makes it all the way to the
+ * client's JSON response, not just the message string.
  */
 
 function handleGetRoom_(params) {
   if (!isValidRoomCode_(params.roomCode)) {
-    return errorResponse_("Room code must be 6 digits.");
+    return errorResponse_("Room code must be 6 digits.", ERR.INVALID_INPUT);
   }
   const result = getRoomRecord_(params.roomCode, params.playerId, params.sessionToken);
   return result.ok
     ? okResponse_({ room: result.room, private: result.private, mafia: result.mafia })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }
 
 function handleCreateRoom_(payload) {
   const validated = validateCreateRoomPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = createRoomRecord_(validated.roomName, validated.hostName, validated.playerId);
   return result.ok
     ? okResponse_({ room: result.room, playerId: result.playerId, sessionToken: result.sessionToken })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }
 
 function handleJoinRoom_(payload) {
   const validated = validateJoinRoomPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = joinRoomRecord_(
     validated.roomCode,
@@ -36,48 +41,48 @@ function handleJoinRoom_(payload) {
   );
   return result.ok
     ? okResponse_({ room: result.room, playerId: result.playerId, sessionToken: result.sessionToken })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }
 
 function handleSetReady_(payload) {
   const validated = validateAuthedPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = setReadyRecord_(validated.roomCode, validated.playerId, validated.sessionToken, !!payload.ready);
-  return result.ok ? okResponse_({ room: result.room }) : errorResponse_(result.error);
+  return result.ok ? okResponse_({ room: result.room }) : errorResponse_(result.error, result.code);
 }
 
 function handleLeaveRoom_(payload) {
   const validated = validateAuthedPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = leaveRoomRecord_(validated.roomCode, validated.playerId, validated.sessionToken);
-  return result.ok ? okResponse_({ room: result.room }) : errorResponse_(result.error);
+  return result.ok ? okResponse_({ room: result.room }) : errorResponse_(result.error, result.code);
 }
 
 function handleStartGame_(payload) {
   const validated = validateAuthedPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = startGameRecord_(validated.roomCode, validated.playerId, validated.sessionToken);
   return result.ok
     ? okResponse_({ room: result.room, private: result.private, mafia: result.mafia })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }
 
 function handleAcknowledgeRole_(payload) {
   const validated = validateAuthedPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = acknowledgeRoleRecord_(validated.roomCode, validated.playerId, validated.sessionToken);
   return result.ok
     ? okResponse_({ room: result.room, private: result.private, mafia: result.mafia })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }
 
 function handleSubmitNightAction_(payload) {
   const validated = validateNightActionPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = submitNightActionRecord_(
     validated.roomCode,
@@ -89,15 +94,15 @@ function handleSubmitNightAction_(payload) {
   );
   return result.ok
     ? okResponse_({ room: result.room, private: result.private, mafia: result.mafia })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }
 
 function handleSubmitVote_(payload) {
   const validated = validateTargetedActionPayload_(payload);
-  if (validated.error) return errorResponse_(validated.error);
+  if (validated.error) return errorResponse_(validated.error, validated.code);
 
   const result = submitVoteRecord_(validated.roomCode, validated.playerId, validated.sessionToken, validated.targetPlayerId);
   return result.ok
     ? okResponse_({ room: result.room, private: result.private, mafia: result.mafia })
-    : errorResponse_(result.error);
+    : errorResponse_(result.error, result.code);
 }

@@ -17,13 +17,15 @@ specific to the actual code below.
 |---|---|
 | `appsscript.json` | Manifest: V8 runtime, web app executes as the deploying user, accessible to anyone anonymously |
 | `Setup.gs` | `CONFIG.DRIVE_ROOT_FOLDER_ID` + one-time `initializeMafiaStorage()` |
-| `Code.gs` | `doGet`/`doPost` — the only two functions Apps Script calls directly |
-| `Api.gs` | One handler per action, validates input then calls into `Rooms.gs` |
+| `Code.gs` | `doGet`/`doPost` — the only two functions Apps Script calls directly, wrapped in a top-level try/catch (Phase 9) |
+| `Api.gs` | One handler per action, validates input then calls into `Rooms.gs`/`GameEngine.gs` |
 | `Rooms.gs` | Room lifecycle: create, join, ready, leave — all under a lock |
+| `GameEngine.gs` | Phase transitions, night/vote resolution, win detection — all under a lock |
+| `Roles.gs` | The six V1 roles, assignment, and small per-room role helpers |
 | `Persistence.gs` | The only file that touches Drive |
 | `Validation.gs` | Server-side input validation (never trusts the client) |
-| `Utils.gs` | Room code / token generation, the locking helper |
-| `Responses.gs` | Consistent `{ok, ...}` / `{ok:false, error}` JSON envelopes |
+| `Utils.gs` | Room code / token generation, the locking helper, structured error codes (`ERR`) and the audit-log helper (Phase 9) |
+| `Responses.gs` | Consistent `{ok, ...}` / `{ok:false, error, code}` JSON envelopes |
 
 ## Deploying this specific code
 
@@ -42,6 +44,31 @@ specific to the actual code below.
    `OK — Mafia backend is running.`
 6. Copy the `/exec` URL into `src/js/config.js`'s `API_BASE_URL` in the
    frontend, commit, and push.
+
+## Updating an already-deployed backend
+
+If you already have this backend deployed from an earlier phase and are
+just applying this phase's changes, you don't need to redo the steps
+above — only:
+
+1. In the Apps Script editor, open each changed file (this phase
+   changed `Utils.gs`, `Responses.gs`, `Validation.gs`, `Api.gs`,
+   `Code.gs`, `Rooms.gs`, and `GameEngine.gs`) and replace its entire
+   contents with the version from this delivery.
+2. Click **Save** (the floppy disk icon, or Ctrl/Cmd+S).
+3. **Deploy → Manage deployments → click the pencil/edit icon on your
+   existing production deployment → Version: "New version" → Deploy.**
+   This is the step that's easy to miss: saving a file in the editor
+   does NOT update your live `/exec` URL — only creating a new version
+   of the existing deployment does. (Creating a brand-new deployment
+   instead of a new version of the existing one would give you a
+   different `/exec` URL, which would mean also updating
+   `src/js/config.js` — stick to "new version" of the *same*
+   deployment to keep your URL stable.)
+4. Open your `/exec` URL directly in a browser — you should still see
+   `OK — Mafia backend is running.`
+5. No `CONFIG.DRIVE_ROOT_FOLDER_ID` or other setup changes are needed
+   for this phase — nothing new was added that requires configuration.
 
 ## Why GET for reads and POST-as-text/plain for writes
 
@@ -73,6 +100,75 @@ in this environment) — that part is standard, widely-relied-upon Apps
 Script behavior, but only your own deployment and testing (Step 7 of
 `APPS_SCRIPT_SETUP.md` — test the `/exec` URL from an incognito browser)
 can fully confirm it end to end.
+
+## Structured error codes (Phase 9)
+
+Every error response now looks like:
+
+```json
+{ "ok": false, "error": "It's not the night phase right now.", "code": "WRONG_PHASE" }
+```
+
+`error` is the same human-readable message the frontend has always
+shown (via `showToast`) — nothing about it changed. `code` is new: a
+stable, machine-readable string the frontend can branch on without
+matching English text. Full list, defined in `Utils.gs`'s `ERR`:
+
+| Code | When |
+|---|---|
+| `INVALID_INPUT` | Malformed request shape (bad room code format, missing name, etc.) |
+| `ROOM_NOT_FOUND` | No room exists with that code |
+| `ROOM_CODE_EXHAUSTED` | Couldn't allocate a fresh 6-digit code (retry) |
+| `SESSION_INVALID` | The player's `playerId`/`sessionToken` pair doesn't match any player in the room |
+| `GAME_ALREADY_STARTED` | Tried to join or start a room that's past `LOBBY` |
+| `NOT_HOST` | A non-host tried to start the game |
+| `NOT_ENOUGH_PLAYERS` | Fewer than 3 players tried to start |
+| `WRONG_PHASE` | Action doesn't match the room's current phase (e.g. voting during NIGHT) |
+| `DEAD_PLAYER` | A dead player tried to vote or act |
+| `NO_ACTION` | A Villager tried to submit a night action |
+| `INVALID_TARGET` | Missing/dead/otherwise-ineligible target for the role's action |
+| `SELF_TARGET_FORBIDDEN` | The Trickster tried to target themselves |
+| `ALREADY_FINALIZED` | Mafia tried to change target after finalizing |
+| `ABILITY_USED` | Trickster/Resurrector's one-time ability already spent |
+| `UNKNOWN_ACTION` | The `action` field didn't match any known endpoint |
+| `MALFORMED_REQUEST` | The POST body wasn't valid JSON |
+| `SERVER_BUSY` | `LockService` couldn't get the lock within 10s — safe to retry |
+| `INTERNAL_ERROR` | An uncaught exception — see `Code.gs`'s try/catch; check Executions in the editor for the real detail |
+
+The frontend currently acts on exactly one of these programmatically
+(`ROOM_NOT_FOUND`, to tell a genuinely deleted room apart from a
+transient failure — see the root `README.md`/`DECISIONS.md` #52) and
+shows every other one as a toast using its `error` message. Nothing
+requires you to add new codes if you extend the game later, but if you
+do add a new rejection, giving it a code (reusing one of the above if
+it fits, or adding a new one to `ERR`) costs nothing and keeps this
+list accurate for whoever reads it next.
+
+## Audit log (Phase 9)
+
+Every successful state-changing action (create/join/ready/leave/start/
+acknowledge/night-action/vote, plus forced timeout transitions) appends
+a small entry to that room's own `auditLog` array, right inside its
+Drive JSON file — you'll see it if you open
+`MafiaGames/rooms/<code>.json` directly in Drive:
+
+```json
+{ "at": "2026-09-26T10:13:28.950Z", "action": "submitVote", "by": "uuid-...", "revision": 9, "detail": "voted" }
+```
+
+This is **never returned by any API response** — not to the frontend,
+not to the host, not through any endpoint. Two reasons: first, which
+players called `submitNightAction` on a given night is itself partial
+role information (only non-Villagers ever do), so exposing it would
+leak roles the same way sending every player's role to every browser
+would; second, it doesn't need an endpoint to be useful — the host
+already has direct Drive access to this same file (which has always
+contained the plaintext roles, since Phase 3/4), so reading the audit
+trail is just "open the file," not a feature that needs building. If
+you ever need to investigate a dispute ("did the app really resolve
+that vote right?"), that JSON file is where to look. It's capped at the
+last 200 entries per room so it can't grow the file unboundedly across
+an unusually long session.
 
 ## Testing after deployment
 

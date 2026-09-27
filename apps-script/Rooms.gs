@@ -149,7 +149,7 @@ function createRoomRecord_(roomName, hostName, clientPlayerId) {
       if (!roomExists_(roomCode)) break;
     }
     if (roomExists_(roomCode)) {
-      return { ok: false, error: "Could not allocate a room code, please try again." };
+      return { ok: false, error: "Could not allocate a room code, please try again.", code: ERR.ROOM_CODE_EXHAUSTED };
     }
 
     const playerId = clientPlayerId || generatePlayerId_();
@@ -177,6 +177,7 @@ function createRoomRecord_(roomName, hostName, clientPlayerId) {
       ],
     };
 
+    recordAudit_(room, "createRoom", playerId, "room created");
     writeRoom_(room);
     return { ok: true, room: toPublicRoom_(room), playerId, sessionToken };
   });
@@ -192,34 +193,45 @@ function createRoomRecord_(roomName, hostName, clientPlayerId) {
 function joinRoomRecord_(roomCode, playerName, clientPlayerId, clientSessionToken) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
-    if (room.phase !== "LOBBY") return { ok: false, error: "That game has already started." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
 
     const timestamp = nowIso_();
     const existingPlayer = clientPlayerId
       ? room.players.find((p) => p.id === clientPlayerId)
       : null;
 
+    // A legitimate reconnect (proven by the matching session token) is allowed
+    // regardless of phase — the game having already started shouldn't lock out
+    // someone who was already a real player in it. Only a genuinely NEW join
+    // attempt is blocked once the game is underway (checked below).
+    if (existingPlayer && clientSessionToken && existingPlayer.sessionToken === clientSessionToken) {
+      existingPlayer.name = playerName;
+      existingPlayer.lastSeenAt = timestamp;
+      room.revision += 1;
+      recordAudit_(room, "joinRoom", existingPlayer.id, "reconnected");
+      writeRoom_(room);
+      return {
+        ok: true,
+        room: toPublicRoom_(room),
+        playerId: existingPlayer.id,
+        sessionToken: existingPlayer.sessionToken,
+      };
+    }
+
+    if (room.phase !== "LOBBY") {
+      return { ok: false, error: "That game has already started.", code: ERR.GAME_ALREADY_STARTED };
+    }
+
     if (existingPlayer) {
-      if (clientSessionToken && existingPlayer.sessionToken === clientSessionToken) {
-        // Legitimate reconnect: same device, same room, proven by the matching
-        // session token (the playerId alone is just a label, not proof).
-        existingPlayer.name = playerName;
-        existingPlayer.lastSeenAt = timestamp;
-        room.revision += 1;
-        writeRoom_(room);
-        return {
-          ok: true,
-          room: toPublicRoom_(room),
-          playerId: existingPlayer.id,
-          sessionToken: existingPlayer.sessionToken,
-        };
-      }
       // This playerId is already taken in this room and the caller couldn't
       // prove ownership of it (wrong/missing session token) — extremely
       // unlikely in practice (it would require a real UUID collision), but
       // rather than reject outright, fall back to minting a fresh id so this
-      // join still succeeds without impersonating the existing player.
+      // join still succeeds without impersonating the existing player. This
+      // is what actually "prevents duplicate player identities" here: the
+      // room's `players` array can never end up with two entries sharing one
+      // id, since a colliding id always gets a freshly-minted replacement
+      // rather than being reused or silently overwritten.
       const playerId = generatePlayerId_();
       const sessionToken = generateSessionToken_();
       room.players.push({
@@ -233,6 +245,7 @@ function joinRoomRecord_(roomCode, playerName, clientPlayerId, clientSessionToke
         lastSeenAt: timestamp,
       });
       room.revision += 1;
+      recordAudit_(room, "joinRoom", playerId, "joined (id collision fallback)");
       writeRoom_(room);
       return { ok: true, room: toPublicRoom_(room), playerId, sessionToken };
     }
@@ -251,6 +264,7 @@ function joinRoomRecord_(roomCode, playerName, clientPlayerId, clientSessionToke
       lastSeenAt: timestamp,
     });
     room.revision += 1;
+    recordAudit_(room, "joinRoom", playerId, "joined");
     writeRoom_(room);
     return { ok: true, room: toPublicRoom_(room), playerId, sessionToken };
   });
@@ -266,7 +280,7 @@ function joinRoomRecord_(roomCode, playerName, clientPlayerId, clientSessionToke
 function getRoomRecord_(roomCode, viewerPlayerId, viewerSessionToken) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
 
     const changed = resolvePendingTimeouts_(room);
     if (changed) writeRoom_(room);
@@ -288,15 +302,18 @@ function findAuthedPlayer_(room, playerId, sessionToken) {
 function setReadyRecord_(roomCode, playerId, sessionToken, ready) {
   return withLock_(() => {
     const room = readRoom_(roomCode);
-    if (!room) return { ok: false, error: "No room found with that code." };
+    if (!room) return { ok: false, error: "No room found with that code.", code: ERR.ROOM_NOT_FOUND };
 
     const player = findAuthedPlayer_(room, playerId, sessionToken);
-    if (!player) return { ok: false, error: "Your session for this room is no longer valid." };
-    if (room.phase !== "LOBBY") return { ok: false, error: "That game has already started." };
+    if (!player) return { ok: false, error: "Your session for this room is no longer valid.", code: ERR.SESSION_INVALID };
+    if (room.phase !== "LOBBY") {
+      return { ok: false, error: "That game has already started.", code: ERR.GAME_ALREADY_STARTED };
+    }
 
     player.ready = !!ready;
     player.lastSeenAt = nowIso_();
     room.revision += 1;
+    recordAudit_(room, "setReady", playerId, ready ? "ready" : "not ready");
     writeRoom_(room);
     return { ok: true, room: toPublicRoom_(room) };
   });
@@ -309,24 +326,32 @@ function leaveRoomRecord_(roomCode, playerId, sessionToken) {
     if (!room) return { ok: true, room: null };
 
     const player = findAuthedPlayer_(room, playerId, sessionToken);
-    if (!player) return { ok: false, error: "Your session for this room is no longer valid." };
+    if (!player) return { ok: false, error: "Your session for this room is no longer valid.", code: ERR.SESSION_INVALID };
 
     room.players = room.players.filter((p) => p.id !== playerId);
     room.revision += 1;
 
     if (room.players.length === 0) {
+      // No remaining player to attribute an audit entry to, and there's no
+      // writeRoom_ call left to ride along with — logging this would mean an
+      // extra Drive write for no real benefit, so this goes to Logger.log
+      // only (see recordAudit_'s doc comment in Utils.gs for the policy).
+      Logger.log("Room " + roomCode + " emptied by last player leaving; trashing.");
       deleteRoom_(roomCode);
       return { ok: true, room: null };
     }
 
     // If the host left, promote the longest-standing remaining player.
     // (Deferred host-transfer UX beyond this — see DECISIONS.md.)
+    let detail = "left";
     if (room.hostPlayerId === playerId) {
       room.players.sort((a, b) => new Date(a.joinedAt) - new Date(b.joinedAt));
       room.players[0].isHost = true;
       room.hostPlayerId = room.players[0].id;
+      detail = "left (host reassigned to " + room.players[0].id + ")";
     }
 
+    recordAudit_(room, "leaveRoom", playerId, detail);
     writeRoom_(room);
     return { ok: true, room: toPublicRoom_(room) };
   });

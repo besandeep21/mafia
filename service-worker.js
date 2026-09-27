@@ -7,7 +7,7 @@
  * instantly. There is no game data to cache yet since Phase 1 has no backend.
  */
 
-const CACHE_VERSION = "mafia-shell-v4";
+const CACHE_VERSION = "mafia-shell-v7"; // Phase 10: polish pass touched CSS/JS shell assets
 
 const SHELL_ASSETS = [
   "./",

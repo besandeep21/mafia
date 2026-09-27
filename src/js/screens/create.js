@@ -1,4 +1,4 @@
-import { renderShell } from "./layout.js";
+import { renderShell, setButtonBusy, clearButtonBusy, STATE_ICONS } from "./layout.js";
 import { createRoom } from "../state/roomStore.js";
 import { getStoredPlayerName, setStoredPlayerName, setLastRoomCode } from "../services/identityService.js";
 import { isBackendConfigured } from "../config.js";
@@ -19,7 +19,8 @@ export function renderCreate(root, navigate) {
         ${
           isBackendConfigured()
             ? ""
-            : `<div class="card" style="border-color:var(--color-critical-strong);">
+            : `<div class="card" style="border-color:var(--color-critical-strong); display:flex; gap:var(--space-base); align-items:flex-start;">
+                <span style="color:var(--color-critical-strong); flex-shrink:0;">${STATE_ICONS.warning}</span>
                 <p class="field-error" style="margin:0;">The game backend isn't configured yet. See apps-script/README.md to deploy it, then set API_BASE_URL in src/js/config.js.</p>
               </div>`
         }
@@ -68,8 +69,7 @@ export function renderCreate(root, navigate) {
     hostNameInput.classList.remove("has-error");
     nameError.classList.add("visually-hidden");
 
-    submitButton.disabled = true;
-    submitButton.textContent = "Creating room…";
+    setButtonBusy(submitButton, "Creating room…");
 
     try {
       setStoredPlayerName(hostName);
@@ -82,8 +82,7 @@ export function renderCreate(root, navigate) {
           ? "The game backend isn't configured yet. See apps-script/README.md."
           : `Couldn't create the room: ${err.message}`;
       networkError.classList.remove("visually-hidden");
-      submitButton.disabled = false;
-      submitButton.textContent = "Create room";
+      clearButtonBusy(submitButton);
     }
   });
 }

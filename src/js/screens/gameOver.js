@@ -34,7 +34,7 @@ export function renderGameOver(content, state, ctx) {
   const tricksterAlsoWon = winners.includes("TRICKSTER");
 
   content.innerHTML = `
-    <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-xl); text-align:center;">
+    <div class="gameover-banner" style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap: var(--space-xl); text-align:center;">
       <div>
         <h2 class="section-title" style="font-size:32px; font-weight:500; margin-bottom:var(--space-xs);">${escapeHtml(primaryCopy.title)}</h2>
         <p class="status-text">${escapeHtml(primaryCopy.description)}</p>
@@ -49,10 +49,10 @@ export function renderGameOver(content, state, ctx) {
         <p class="section-title" style="margin-bottom:var(--space-base);">Final roles</p>
         <ul class="player-list">
           ${room.players
-            .map((p) => {
+            .map((p, i) => {
               const role = roles[p.id];
               return `
-            <li class="player-row">
+            <li class="player-row list-anim-in" style="animation-delay:${i * 50}ms">
               <span class="player-row__name">
                 <span class="player-avatar">${escapeHtml(p.name.slice(0, 1).toUpperCase())}</span>
                 ${escapeHtml(p.name)}${p.id === ctx.ownPlayerId ? " (you)" : ""}
