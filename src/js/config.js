@@ -10,7 +10,7 @@
  */
 
 export const CONFIG = {
-  API_BASE_URL: "PASTE_YOUR_APPS_SCRIPT_EXEC_URL_HERE",
+  API_BASE_URL: "https://script.google.com/macros/s/AKfycbxMBf09_z_SyMydOH-SS73vjiDQAFx8GmBnLavv45EimFXFd9F1qlOP3PzWFlyV2KLrNg/exec",
 };
 
 export function isBackendConfigured() {
